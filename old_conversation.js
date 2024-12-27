@@ -4,11 +4,11 @@ let history = [
 ];
 
 // This function updates the conversation history
-function updateHistory(userMessage, botResponse) {
+function updateHistory(userMessage, username, botResponse) {
   // Keep the system message, then add the user message and bot response
   history = [
-    history[0],  // Keep the system message
-    { role: 'user', content: userMessage },
+    history[0],
+    { role: 'user', username: username, content: userMessage },
     { role: 'assistant', content: botResponse }
   ];
 
@@ -21,7 +21,7 @@ async function handleUserMessage(userMessage) {
   const botResponse = await getBotResponse(userMessage);
 
   // Save the updated history
-  updateHistory(userMessage, botResponse);
+  updateHistory(userMessage, username, botResponse);
 
   // Return the bot's response
   return botResponse;
