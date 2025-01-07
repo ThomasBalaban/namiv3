@@ -51,7 +51,7 @@ let BOT_CONFIG = {
     name: `${BOTNAME}`,
     nickname: `${BOTNICKNAME}`,
     max_tokens: 150,  // You can adjust this based on the desired response length
-    temperature: 0.8,  // Adjust for more creative/random responses (0 to 1 scale)
+    temperature: 0.7,  // Adjust for more creative/random responses (0 to 1 scale)
     top_p: 0.8,  // Adjust for better sampling (optional)
     n: 1,  // Number of responses you want to generate (usually 1)
     mood: currentMood, // Store initial mood

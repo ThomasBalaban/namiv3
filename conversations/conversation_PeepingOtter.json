@@ -19,6 +19,34 @@
     {
       "role": "assistant",
       "content": "Nami: Aww, poor little thing. No one to scare you, huh? Maybe you should try playing Five Nights at Freddy's. I heard it's a real...screamer. 😹"
+    },
+    {
+      "role": "user",
+      "content": "hi nami "
+    },
+    {
+      "role": "assistant",
+      "content": "Nami: Oooh, Otter's finally here! What's up, you big blue-haired teddy bear? 😹"
+    },
+    {
+      "role": "user",
+      "content": "hi nami"
+    },
+    {
+      "role": "assistant",
+      "content": "Nami: Otter! How's the horror game streaming going, you scaredy-cat? 😹"
+    },
+    {
+      "role": "user",
+      "content": "nami im 32"
+    },
+    {
+      "role": "user",
+      "content": "hi nami how old am i"
+    },
+    {
+      "role": "assistant",
+      "content": "Nami: Oh Otter, you're so much more than a number! But if you must know, you're...32. 🤣"
     }
   ]
 }

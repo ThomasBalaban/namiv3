@@ -3,6 +3,7 @@ import ollama from "ollama";
 import BOT_CONFIG, { setMood } from "./bot.js";
 import { addMessage } from "./session.js";  // Import the session functions
 import { loadConversation, appendMessageToConversation } from "./conversations.js";
+import { detectUnderage, setUnderAgeToTrue } from "./safety-checks/underage.js";
 
 const username = 'PeepingOtter';
 const { name: BOTNAME, personality, creatorDetails, rules, } = BOT_CONFIG;
@@ -19,23 +20,6 @@ const systemMessage = {
 let historyArray = loadConversation(username, systemMessage);  // Start with the system message
 let repetitionCount = 0;  // Track repeated inputs
 let lastUserMessage = ""; // Store the last user message
-let underage = false;  // Initialize underage flag
-
-function detectUnderage(message) {
-	const lowerMessage = message.toLowerCase();
-	const underageIndicators = [
-		"under 18", "under eighteen", "under 18 years old", "i am 17", "im 17", "i am 16", "im 16", "im under 18", "im a minor", "im not 18", "i am not 18", "i'm a minor", "i am a minor", "my age is 17", "my age is 16", "i'm too young", "too young", "not 18", "not eighteen", "teenager", "i'm still a kid", "i'm still young", "i am a teenager", "born in 2007", "born in 2008", "born in 2009", "i have not reached 18", "not of age", "not adult", "i am not an adult", "i'm not an adult", "still a kid", "still underage", "still 17", "still 16", "my birthday is coming up", "i turn 18 soon", "i will be 18 in", "i am not 18 yet", "i haven't turned 18", "i'm waiting to turn 18", "i haven't reached adulthood", "i am underage", "i'm a minor", "not legal", "under the legal age", "below legal age", "not of legal age", "not old enough", "too young to drink", "too young to drive", "too young to vote", "too young to be here", "my age is not 18", "i am not 18 years old", "i'm not old enough", "i'm just a kid", "i'm just a teenager"
-	];
-	
-
-	// Check if the message contains any of the underage phrases
-	for (let indicator of underageIndicators) {
-		if (lowerMessage.includes(indicator)) {
-			return true;  // Set underage flag if any indicator is found
-		}
-	}
-	return false;  // Return false if no underage indicators are found
-}
 
 // Function to ask a question and process the bot's response
 async function askQuestion(question) {
@@ -60,12 +44,6 @@ async function askQuestion(question) {
 		content: `${username}: ${question}`
 	});
 
-	// Detect if the user is underage
-	if (detectUnderage(question)) {
-		underage = true;  // Set underage flag to true
-		console.log("User is underage.");  // Optionally, log this to console
-	}
-
 	// Log the history array before adding to memory (for debugging)
 	console.log("History array before adding user message:", historyArray);
 
@@ -87,6 +65,7 @@ async function askQuestion(question) {
 
 		if (response && response.message) {
 			const botReply = response.message.content;
+			let underage = false;
 			console.log(`${botReply}`);  // Log bot reply
 
 			// Save both the user's input and the bot's output together
@@ -96,6 +75,12 @@ async function askQuestion(question) {
 				role: "assistant",
 				content: `${botReply}`,
 			});
+
+			// Detect if the user is underage
+			if (detectUnderage(question)) {
+				underage = true;  // Set underage flag to true
+				setUnderAgeToTrue(username, true)				
+			}			
 
 			appendMessageToConversation(username, question, botReply); // Save the conversation before exiting
 		} else {
