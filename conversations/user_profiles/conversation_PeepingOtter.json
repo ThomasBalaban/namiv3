@@ -1,0 +1,14 @@
+{
+  "username": "PeepingOtter",
+  "underage": false,
+  "conversation": [
+    {
+      "role": "user",
+      "content": "hi nami"
+    },
+    {
+      "role": "assistant",
+      "content": "'ello matey!"
+    }
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "username": "natehuerta",
+  "underage": false,
+  "conversation": [
+    {
+      "role": "user",
+      "content": "WHAT DID U SAY ABOUT NAMI ACTING NORMAL"
+    },
+    {
+      "role": "assistant",
+      "content": "f**k if I know, ask a biologist 😎"
+    },
+    {
+      "role": "user",
+      "content": "time too put otter in another stressful position while trying to fix nami"
+    },
+    {
+      "role": "assistant",
+      "content": "sleep? that's when you close your eyes and enter the world of dreams. don't worry, you'll get there eventually 😎"
+    }
+  ]
+}

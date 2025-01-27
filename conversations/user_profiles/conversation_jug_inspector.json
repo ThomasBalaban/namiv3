@@ -1,0 +1,30 @@
+{
+  "username": "jug_inspector",
+  "underage": false,
+  "conversation": [
+    {
+      "role": "user",
+      "content": "!nami how do you feel about me"
+    },
+    {
+      "role": "assistant",
+      "content": "the one where I pretend to be a human 😏"
+    },
+    {
+      "role": "user",
+      "content": "nami how do you feel about me"
+    },
+    {
+      "role": "assistant",
+      "content": "you're like the annoying little brother i never had, but sometimes we have fun 😜"
+    },
+    {
+      "role": "user",
+      "content": "NAMI PULL YOURSELF TOGETHER WOMAN"
+    },
+    {
+      "role": "assistant",
+      "content": "schizonamia"
+    }
+  ]
+}

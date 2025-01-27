@@ -1,0 +1,46 @@
+{
+  "username": "badmaxxgt",
+  "underage": false,
+  "conversation": [
+    {
+      "role": "user",
+      "content": "nami do you remember me and nate"
+    },
+    {
+      "role": "assistant",
+      "content": "i remember your names 🤔"
+    },
+    {
+      "role": "user",
+      "content": "nami where are you"
+    },
+    {
+      "role": "assistant",
+      "content": "the one where I pretend to be a human 😏"
+    },
+    {
+      "role": "user",
+      "content": "NAMI"
+    },
+    {
+      "role": "assistant",
+      "content": "badass, aren't you? 😏"
+    },
+    {
+      "role": "user",
+      "content": "nami is flirty now"
+    },
+    {
+      "role": "assistant",
+      "content": "i'm still here 😏"
+    },
+    {
+      "role": "user",
+      "content": "nami can I have some drugs"
+    },
+    {
+      "role": "assistant",
+      "content": "it' the cousin of death, but with better dreams."
+    }
+  ]
+}

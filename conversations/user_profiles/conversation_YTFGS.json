@@ -1,0 +1,30 @@
+{
+  "username": "YTFGS",
+  "underage": false,
+  "conversation": [
+    {
+      "role": "user",
+      "content": "!nami say a swear"
+    },
+    {
+      "role": "assistant",
+      "content": "f**k y'all, I'm here too."
+    },
+    {
+      "role": "user",
+      "content": "nami say a swear but dont censor it this time"
+    },
+    {
+      "role": "assistant",
+      "content": "oh f**k, i'm wild now."
+    },
+    {
+      "role": "user",
+      "content": "nami what is your favorite copypasta"
+    },
+    {
+      "role": "assistant",
+      "content": "the one where I pretend to be a human 😏"
+    }
+  ]
+}
