@@ -3,7 +3,7 @@ import ollama from "ollama";
 import BOT_CONFIG, { setMood } from "./bot.js";
 import { addMessage } from "./session.js";  // Import the session functions
 import { loadConversation, appendMessageToConversation } from "./conversations.js";
-import { detectUnderage, setUnderAgeToTrue } from "./safety-checks/underage.js";
+import { detectUnderage, setUnderAgeToTrue } from "../safety-checks/underage.js";
 
 const username = 'PeepingOtter';
 const { name: BOTNAME, personality, creatorDetails, rules, } = BOT_CONFIG;
