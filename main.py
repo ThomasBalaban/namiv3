@@ -2,6 +2,7 @@ from ollama import chat
 import sys
 import threading
 import requests
+import re
 import json
 import asyncio
 from twitch_chat import setup_chat, get_chat, set_message_callback  # Import the new set_message_callback function
@@ -12,6 +13,41 @@ BOTNAME = "peepingnami"  # Bot's name
 conversation_history = []  # Initialize an empty list to store conversation history
 MAX_CONVERSATION_LENGTH = 50
 message_lock = asyncio.Lock() # Create an asyncio lock to prevent concurrent message handling.
+
+
+def censor_text(text):
+    # List of banned words (all will be replaced with "*filtered*")
+    banned_words = [
+        "nigger",
+        "n word",
+        "fag",
+        "faggot",
+        "beaner",
+        "black cock",
+        "coon",
+        "coons",
+        "rape",
+        "child porn",
+        "child pornography",
+        "porno",
+        "pornography",
+        "jailbait",
+        "kike",
+        "negro",
+        "nig nog",
+        "nigga",
+        "slanteye",
+        "towelhead",
+        "porch monkey",
+        "sand monkey", 
+        "wetback",
+        # add any additional banned words here
+    ]
+    # Create a regex pattern that matches any of the banned words (case-insensitive)
+    pattern = re.compile("|".join(re.escape(word) for word in banned_words), flags=re.IGNORECASE)
+    # Replace any banned word with "*filtered*"
+    return pattern.sub("*filtered*", text)
+
 
 def add_message(role, content):
     global conversation_history
@@ -51,7 +87,7 @@ async def handle_twitch_message(msg):
         chat = get_chat()
         if chat:
             await chat.send_message(TARGET_CHANNEL, f"{bot_reply}")
-            
+
 
 def start_bot():
     """
@@ -109,9 +145,10 @@ def ask_question(question):
                 chunk_data = json.loads(chunk.decode("utf-8"))
                 # Access the content from the "message" key
                 part = chunk_data.get("message", {}).get("content", "")
+                # Censor any banned words in the chunk
+                part = censor_text(part)
                 bot_reply += part
                 print(part, end="", flush=True)
-
 
         print()  # Print a newline after the response is complete
 
