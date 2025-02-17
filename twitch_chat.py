@@ -3,10 +3,11 @@ from twitchAPI.oauth import UserAuthenticator
 from twitchAPI.type import AuthScope, ChatEvent
 from twitchAPI.chat import Chat, EventData, ChatMessage, ChatSub, ChatCommand
 import asyncio
-from config import APP_ID, APP_SECRET
+from config import APP_ID, APP_SECRET, TARGET_CHANNEL
+import webbrowser
 
 USER_SCOPE = [AuthScope.CHAT_READ, AuthScope.CHAT_EDIT]
-TARGET_CHANNEL = 'peepingotter'
+CHROME_PATH = "C:/Program Files/Google/Chrome/Application/chrome.exe"  # Update this path if necessary
 
 # Global variable to store the chat object
 chat = None
@@ -42,8 +43,14 @@ async def setup_chat():
     global chat
     # set up twitch api instance and add user authentication with some scopes
     twitch = await Twitch(APP_ID, APP_SECRET)
-    auth = UserAuthenticator(twitch, USER_SCOPE)
+
+    # Configure the browser to use Google Chrome
+    webbrowser.register('chrome', None, webbrowser.BackgroundBrowser(CHROME_PATH))
+    webbrowser.get('chrome')  # Set Chrome as the default browser for this session
+
+    auth = UserAuthenticator(twitch, USER_SCOPE, force_verify=True)  # Use Chrome for authentication
     token, refresh_token = await auth.authenticate()
+    print(f'Bot is ready for work, joining channels')
     await twitch.set_user_authentication(token, USER_SCOPE, refresh_token)
 
     # create chat instance
