@@ -5,6 +5,7 @@ import requests
 import re
 import json
 import asyncio
+from hard_filter import banned_words
 from twitch_chat import setup_chat, get_chat, set_message_callback  # Import the new set_message_callback function
 from config import TARGET_CHANNEL
 
@@ -17,32 +18,6 @@ message_lock = asyncio.Lock() # Create an asyncio lock to prevent concurrent mes
 
 def censor_text(text):
     # List of banned words (all will be replaced with "*filtered*")
-    banned_words = [
-        "nigger",
-        "n word",
-        "fag",
-        "faggot",
-        "beaner",
-        "black cock",
-        "coon",
-        "coons",
-        "rape",
-        "child porn",
-        "child pornography",
-        "porno",
-        "pornography",
-        "jailbait",
-        "kike",
-        "negro",
-        "nig nog",
-        "nigga",
-        "slanteye",
-        "towelhead",
-        "porch monkey",
-        "sand monkey", 
-        "wetback",
-        # add any additional banned words here
-    ]
     # Create a regex pattern that matches any of the banned words (case-insensitive)
     pattern = re.compile("|".join(re.escape(word) for word in banned_words), flags=re.IGNORECASE)
     # Replace any banned word with "*filtered*"
