@@ -3,3 +3,5 @@
 ./config.py
 config.py
 config.py
+local_models/*
+__pycache__
