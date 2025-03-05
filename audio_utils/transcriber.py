@@ -1,4 +1,4 @@
-# this file is poorly named, it does desktop transcription 
+# Modified desktop transcription file
 import os
 import time
 import numpy as np
@@ -12,9 +12,10 @@ from queue import Queue
 # Use full package imports
 from audio_config import FS, CHUNK_DURATION, OVERLAP, MODEL_SIZE, DEVICE, SAVE_DIR, MAX_THREADS
 from audio_utils.classifier import SpeechMusicClassifier
+from audio_utils.audio_manager import TranscriptManager
 
 class SpeechMusicTranscriber:
-    def __init__(self, keep_files=False, auto_detect=True, debug_mode=False):
+    def __init__(self, keep_files=False, auto_detect=True, debug_mode=False, transcript_manager=None):
         os.makedirs(SAVE_DIR, exist_ok=True)
         
         print(f"Loading Whisper model: {MODEL_SIZE} on {DEVICE}")
@@ -41,10 +42,13 @@ class SpeechMusicTranscriber:
         self.auto_detect = auto_detect
         self.debug_mode = debug_mode
         
+        # Transcript Manager for persistent storage
+        self.transcript_manager = transcript_manager
+        
     def audio_callback(self, indata, frames, timestamp, status):
         """Process incoming audio data with error handling"""
         try:
-            if status:
+            if status and self.debug_mode:
                 print(f"Audio status: {status}")
             
             # Skip if stopped
@@ -174,18 +178,33 @@ class SpeechMusicTranscriber:
                 if not self.result_queue.empty():
                     text, filename, audio_type, confidence = self.result_queue.get()
                     latency = time.time() - self.last_processed
+                    timestamp = time.strftime("%H:%M:%S")
                     
                     # Format output based on whether we have text
                     if text:
                         if text.startswith("[Error"):
-                            print(f"\n[{time.strftime('%H:%M:%S')} | {latency:.1f}s] [{audio_type.upper()} {confidence:.2f}] {text}", flush=True)
+                            print(f"\n[{timestamp} | {latency:.1f}s] [{audio_type.upper()} {confidence:.2f}] {text}", flush=True)
                         else:
                             if self.debug_mode:
-                                print(f"\n[{time.strftime('%H:%M:%S')} | {latency:.1f}s] [{audio_type.upper()} {confidence:.2f}] {text}", flush=True)
+                                print(f"\n[{timestamp} | {latency:.1f}s] [{audio_type.upper()} {confidence:.2f}] {text}", flush=True)
                             else:
-                                print(f"[{time.strftime('%H:%M:%S')} | {latency:.1f}s] [{audio_type.upper()} {confidence:.2f}] {text}", flush=True)
+                                print(f"[{timestamp} | {latency:.1f}s] [{audio_type.upper()} {confidence:.2f}] {text}", flush=True)
+                            
+                            # Publish to transcript manager if available
+                            if self.transcript_manager:
+                                metadata = {
+                                    "audio_type": audio_type,
+                                    "confidence": float(confidence),
+                                    "latency": float(latency)
+                                }
+                                self.transcript_manager.publish_transcript(
+                                    source="desktop",
+                                    text=text,
+                                    metadata=metadata
+                                )
+                                
                     elif self.debug_mode:
-                        print(f"\n[{time.strftime('%H:%M:%S')} | {latency:.1f}s] [{audio_type.upper()} {confidence:.2f} - NO TEXT]", flush=True)
+                        print(f"\n[{timestamp} | {latency:.1f}s] [{audio_type.upper()} {confidence:.2f} - NO TEXT]", flush=True)
                     
                     # Delete the file after processing if not keeping files
                     if not self.keep_files and filename and os.path.exists(filename):
@@ -245,13 +264,15 @@ class SpeechMusicTranscriber:
     def run(self):
         print(f"Model: {MODEL_SIZE.upper()} | Device: {DEVICE.upper()}")
         print(f"Chunk: {CHUNK_DURATION}s with {OVERLAP}s overlap")
-        print(f"Debug mode: {self.debug_mode}")
+        print(f"Debug mode: {'ON' if self.debug_mode else 'OFF'}")
 
         # Only print detailed info in debug mode
         if self.debug_mode:
             print(f"SPEECH/MUSIC AUTO-DETECTING TRANSCRIBER")
             print(f"Current audio type: {self.classifier.current_type.upper()}")
             print(f"Auto-detection: {'ON' if self.auto_detect else 'OFF'}")
+            if self.transcript_manager:
+                print(f"Transcript Manager: Connected")
 
         print(f"Commands:")
         print(f"  s - Switch to SPEECH mode")

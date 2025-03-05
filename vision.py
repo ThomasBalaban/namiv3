@@ -9,7 +9,12 @@ from io import BytesIO
 from config import MONITOR_AREA
 import os
 import threading
+import queue
+import sys
 from collections import deque
+
+# Create a queue for external access to vision data
+vision_queue = queue.Queue()
 
 os.environ['OLLAMA_GPU_LAYERS'] = "99"
 os.environ['OLLAMA_GGML_METAL'] = "1"
@@ -66,9 +71,33 @@ def generate_summary():
             prompt=summary_prompt,
             options={'temperature': 0.2, 'num_predict': 250}
         )
-        return "Summary: " + response['response']
+        summary_text = "Summary: " + response['response']
+        
+        # Add to the queue for external access
+        vision_queue.put({
+            "type": "summary",
+            "text": summary_text,
+            "timestamp": time.strftime("%H:%M:%S")
+        })
+        
+        # Print with explicit flush to ensure immediate output
+        print(f"\n[SUMMARY] {summary_text}\n", flush=True)
+        
+        return summary_text
     except Exception as e:
-        return f"Summary error: {str(e)}"
+        error_msg = f"Summary error: {str(e)}"
+        
+        # Add error to the queue
+        vision_queue.put({
+            "type": "error",
+            "text": error_msg,
+            "timestamp": time.strftime("%H:%M:%S")
+        })
+        
+        # Print with explicit flush
+        print(f"\nError: {error_msg}\n", flush=True)
+        
+        return error_msg
 
 def validate_frame(frame):
     global last_valid_frame
@@ -91,7 +120,6 @@ def summary_worker():
             with summary_lock:
                 summarized_context.append(summary)
                 last_summary_time = time.time()
-                print(f"\n[SUMMARY] {summary}\n")
 
 def analyze_frame(frame):
     start_time = time.time()
@@ -116,15 +144,47 @@ def analyze_frame(frame):
         with summary_lock:
             analysis_history.append(f"{result}")
         
-        print(f"\n{process_time:.1f}s: {result}")
+        # Add the analysis to the queue for external access
+        vision_queue.put({
+            "type": "analysis",
+            "text": result,
+            "process_time": process_time,
+            "timestamp": time.strftime("%H:%M:%S")
+        })
+        
+        # Print with explicit flush to ensure immediate output
+        print(f"\n{process_time:.1f}s: {result}", flush=True)
         return result, process_time
     
     except Exception as e:
-        return f"Error: {str(e)}", 0
+        error_msg = f"Error: {str(e)}"
+        
+        # Add error to the queue
+        vision_queue.put({
+            "type": "error",
+            "text": error_msg,
+            "timestamp": time.strftime("%H:%M:%S")
+        })
+        
+        # Print with explicit flush
+        print(f"\nError: {error_msg}", flush=True)
+        
+        return error_msg, 0
 
 def video_analysis_loop():
     global last_valid_frame
+    
+    # Configure stdout to be line-buffered
+    if hasattr(sys.stdout, 'reconfigure'):
+        sys.stdout.reconfigure(line_buffering=True)
+    else:
+        # For older Python versions
+        sys.stdout = os.fdopen(sys.stdout.fileno(), 'w', 1)
+    
+    # Start summary worker
     threading.Thread(target=summary_worker, daemon=True).start()
+    
+    print("Vision system initialized", flush=True)
 
     with mss() as sct:
         while True:
@@ -143,6 +203,19 @@ def video_analysis_loop():
 
     cv2.destroyAllWindows()
 
+def get_vision_queue():
+    """Function to access the vision queue from external modules"""
+    return vision_queue
+
 if __name__ == "__main__":
+    # Disable output buffering
+    if hasattr(sys.stdout, 'reconfigure'):
+        sys.stdout.reconfigure(line_buffering=True)
+    else:
+        # For older Python versions
+        sys.stdout = os.fdopen(sys.stdout.fileno(), 'w', 1)
+    
+    print("Starting vision system", flush=True)
     ollama.generate(model=MODEL, prompt="Ready")  # Warmup
+    print("Model loaded", flush=True)
     video_analysis_loop()
