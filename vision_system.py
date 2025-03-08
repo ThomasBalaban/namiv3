@@ -90,7 +90,7 @@ def monitor_vision_queue():
             # No items in queue, wait a bit
             time.sleep(0.1)
 
-def start_vision_system():
+def start_vision_system(output_reader=None):
     """Start the vision.py script as a subprocess"""
     global vision_process, vision_queue
     
@@ -126,9 +126,12 @@ def start_vision_system():
         # Register cleanup function to terminate the process on exit
         atexit.register(lambda: vision_process.terminate() if vision_process else None)
         
+        # Use custom output reader if provided, otherwise use default
+        reader_func = output_reader if output_reader else vision_output_reader
+        
         # Start thread to read its output
         output_thread = threading.Thread(
-            target=vision_output_reader,
+            target=reader_func,
             args=(vision_process,),
             daemon=True
         )

@@ -7,7 +7,6 @@ ACTIVE_CHANNEL = 'peepingotter'
 chatters = []
 conversation_data = []
 
-
 # Bot Configuration
 class TwitchBot(commands.Bot):
     def __init__(self):
