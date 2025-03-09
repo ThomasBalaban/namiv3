@@ -108,21 +108,7 @@ def process_hearing_line(line):
     # Skip empty lines
     if not line.strip():
         return
-        
-    # Skip system initialization messages
-    system_messages = [
-        "Vosk ready", 
-        "Starting transcription",
-        "Error opening",
-        "PortAudioError",
-        "Loading vosk model",
-        "Loaded model" 
-    ]
-    
-    if any(msg in line for msg in system_messages):
-        print(f"Skipping system message: {line.strip()}")
-        return
-        
+
     # Parse the line to extract information
     confidence = 0.0
     source_type = "UNKNOWN"

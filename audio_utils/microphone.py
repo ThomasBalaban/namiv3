@@ -56,7 +56,7 @@ def initialize_vosk(debug_mode=False):
 def create_audio_callback(recognizer, debug_mode=False):
     """Create a callback function for the audio stream"""
     
-    def audio_callback(indata, frames, time, status):
+    def audio_callback(indata, frames, time_info, status):
         """Process audio from microphone"""
         try:
             # If in debug mode, print status information
@@ -81,7 +81,7 @@ def create_audio_callback(recognizer, debug_mode=False):
                 text = result[14:-3].strip()  # Extract text from JSON
                 
                 if text:
-                    # Print to console
+                    # Get current timestamp from system time (not from callback's time_info)
                     timestamp = time.strftime("%H:%M:%S")
                     print(f"[{timestamp}] [Microphone] {text}")
                     

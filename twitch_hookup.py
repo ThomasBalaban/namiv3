@@ -2,8 +2,8 @@ import asyncio
 import json
 import os
 from twitchio.ext import commands
+from config import TARGET_CHANNEL
 
-ACTIVE_CHANNEL = 'peepingotter'
 chatters = []
 conversation_data = []
 
@@ -13,12 +13,12 @@ class TwitchBot(commands.Bot):
         super().__init__(
             token="oauth:51ioccg8wrmo5m9dpb9kc039h5i6wc",  # Replace with your OAuth token
             prefix="!",
-            initial_channels=[ACTIVE_CHANNEL],
+            initial_channels=[TARGET_CHANNEL],
         )
 
     async def event_ready(self):
         print(f"Logged in as {self.nick}")
-        print(f"Connected to channel: {ACTIVE_CHANNEL}")
+        print(f"Connected to channel: {TARGET_CHANNEL}")
 
     async def event_message(self, message):
         # Ignore the bot's own messages

@@ -4,30 +4,23 @@ Main entry point for the PeepingNami bot with Priority System.
 """
 import argparse
 import signal
-import sys
 import threading
-import time
 import os
-
-# Import our modularized components
-from bot_core import start_bot_console, ask_question, BOTNAME
+from bot_core import ask_question, BOTNAME
 from hearing_system import start_hearing_system, stop_hearing_system
 from vision_system import start_vision_system, stop_vision_system, check_vision_queue
 from chat_interface import init_twitch_bot
 from config import TARGET_CHANNEL
+from input_systems.response_handler import ResponseHandler
 
 # Import priority system components from the input_systems folder
 from input_systems import (
     init_priority_system,
     shutdown_priority_system, 
     process_console_command,
-    handle_twitch_message,
     process_hearing_line,
     process_vision_line
 )
-
-# Import ResponseHandler for the new integration
-from input_systems.response_handler import ResponseHandler, Colors
 
 def signal_handler(sig, frame):
     """Handle clean shutdown on Ctrl+C"""
