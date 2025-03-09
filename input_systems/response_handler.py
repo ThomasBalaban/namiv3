@@ -112,18 +112,32 @@ class ResponseHandler:
     
     def _format_input(self, item: InputItem) -> str:
         """Format the input appropriately based on source"""
+        # Direct interactions - formatted as questions/commands
         if item.source == InputSource.DIRECT_MICROPHONE:
             return f"You said: {item.text}"
         elif item.source == InputSource.TWITCH_MENTION:
             username = item.metadata.get('username', 'Someone')
             return f"{username} in chat: {item.text}"
+        
+        # Ambient audio - what the bot is hearing
         elif item.source == InputSource.AMBIENT_AUDIO:
-            return f"I heard: {item.text}"
+            audio_type = item.metadata.get('source_type', 'AUDIO')
+            if audio_type == "MUSIC":
+                return f"You're hearing music: {item.text}. React to this if you find it interesting."
+            else:
+                return f"You're overhearing: {item.text}. React to this if you find it interesting."
+                
+        # Visual inputs - what the bot is seeing
         elif item.source == InputSource.VISUAL_CHANGE:
             if item.metadata.get('is_summary', False):
-                return f"I see: {item.text}"
+                return f"You're seeing: {item.text}. React to what you're seeing if you find it interesting."
             else:
-                return f"I noticed: {item.text}"
+                return f"You notice: {item.text}. React to what you're seeing if you find it interesting."
+                
+        # Regular chat messages that aren't directed at the bot
+        elif item.source == InputSource.TWITCH_CHAT:
+            username = item.metadata.get('username', 'Someone')
+            return f"You see {username} chatting: {item.text}. React to this if you find it interesting."
         else:
             return item.text
     
@@ -138,9 +152,18 @@ class ResponseHandler:
         else:
             source_info = ""
             
-        # Format with multiple highlighting to make it stand out
+        # Simple border with dashes
+        border = "-" * 50
+        
+        # Print with enhanced formatting
+        print("\n")  # Add extra spacing
+        print(f"{Colors.BOLD}{Colors.BLUE}{border}{Colors.END}")
         print(f"{Colors.GREEN}{response}{Colors.END}")
-        print("You: ", end="", flush=True)
+        print(f"{Colors.BOLD}{Colors.BLUE}{border}{Colors.END}")
+        print("\n")  # Add extra spacing
+        
+        # Reset prompt
+        print(f"{Colors.BOLD}You: {Colors.END}", end="", flush=True)
         
         # Send the response to Twitch if appropriate and callback is available
         should_send_to_twitch = (
