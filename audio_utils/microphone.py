@@ -83,7 +83,9 @@ def create_audio_callback(recognizer, debug_mode=False):
                 if text:
                     # Get current timestamp from system time (not from callback's time_info)
                     timestamp = time.strftime("%H:%M:%S")
-                    print(f"[{timestamp}] [Microphone] {text}")
+                    
+                    # Print with expected format for main.py to detect
+                    print(f"[Microphone Input] {text}")
                     
                     # Publish to transcript manager if available
                     global transcript_manager

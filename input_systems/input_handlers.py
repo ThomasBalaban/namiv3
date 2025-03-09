@@ -66,23 +66,20 @@ async def handle_twitch_message(msg, botname="peepingnami"):
 
 # ====== HEARING SYSTEM HANDLER ======
 
-def handle_hearing_input(transcription, source_type, confidence):
-    """Process input from the hearing system"""
+def handle_microphone_input(transcription, confidence=0.7):
+    """Process input specifically from microphone"""
     if priority_system is None:
         return
         
     if confidence < 0.4:
         return  # Skip low confidence transcriptions
     
-    # Determine if this is direct speech or ambient
-    is_direct = False
-    if source_type == "MICROPHONE":
-        # Simple check - if it contains bot name, assume it's direct
-        is_direct = 'nami' in transcription.lower() or 'peepingnami' in transcription.lower()
+    # Determine if this is direct speech by checking for bot name
+    is_direct = 'nami' in transcription.lower() or 'peepingnami' in transcription.lower()
     
     # Create metadata
     metadata = {
-        'source_type': source_type,
+        'source_type': "MICROPHONE",
         'confidence': confidence,
         'is_direct': is_direct,
         'relevance': confidence,  # Use confidence as initial relevance
@@ -103,6 +100,30 @@ def handle_hearing_input(transcription, source_type, confidence):
             metadata
         )
 
+def handle_desktop_audio_input(transcription, audio_type, confidence):
+    """Process input specifically from desktop audio"""
+    if priority_system is None:
+        return
+        
+    if confidence < 0.4:
+        return  # Skip low confidence transcriptions
+    
+    # Create metadata
+    metadata = {
+        'source_type': audio_type,  # "SPEECH" or "MUSIC" 
+        'confidence': confidence,
+        'is_direct': False,  # Desktop audio is never direct by definition
+        'relevance': confidence * 0.8,  # Slightly lower relevance than microphone
+        'urgency': 0.2
+    }
+    
+    # Desktop audio always goes to ambient audio
+    priority_system.add_input(
+        InputSource.AMBIENT_AUDIO, 
+        transcription,
+        metadata
+    )
+
 def process_hearing_line(line):
     """Process a line of output from the hearing system"""
     # Skip empty lines
@@ -115,10 +136,16 @@ def process_hearing_line(line):
     transcription = ""
     
     if "[Microphone Input]" in line:
-        source_type = "MICROPHONE"
+        # Process microphone input
         transcription = line.replace("[Microphone Input]", "").strip()
-        confidence = 0.7  # Assume decent confidence for microphone
+        
+        # If we have a transcription, handle it
+        if transcription:
+            handle_microphone_input(transcription)
+            
     elif any(x in line for x in ["SPEECH", "MUSIC"]):
+        # This is desktop audio
+        
         # Extract confidence if available
         if "SPEECH" in line:
             source_type = "SPEECH"
@@ -141,12 +168,10 @@ def process_hearing_line(line):
         parts = line.split("]")
         if len(parts) > 1:
             transcription = parts[-1].strip()
-    
-    # Skip if no transcription
-    if not transcription:
-        return
-    
-    handle_hearing_input(transcription, source_type, confidence)
+        
+        # If we have a transcription, handle it as desktop audio
+        if transcription:
+            handle_desktop_audio_input(transcription, source_type, confidence)
 
 # ====== VISION SYSTEM HANDLER ======
 
@@ -177,20 +202,6 @@ def process_vision_line(line):
     """Process a line of output from the vision system"""
     # Skip empty lines
     if not line.strip():
-        return
-        
-    # Skip system initialization messages
-    system_messages = [
-        "Starting vision system", 
-        "Model loaded", 
-        "Vision system initialized",
-        "Starting", 
-        "Initializing",
-        "Loading"
-    ]
-    
-    if any(msg in line for msg in system_messages):
-        print(f"Skipping system message: {line.strip()}")
         return
         
     # Determine line type and extract content

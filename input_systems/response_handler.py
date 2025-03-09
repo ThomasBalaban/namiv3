@@ -147,11 +147,11 @@ class ResponseHandler:
             getattr(item, 'broadcast_response', False)
         )
         
-        print(f"{Colors.YELLOW}Sending response to Twitch...{Colors.END}")
-        try:
-            self.twitch_send_callback(response)
-        except Exception as e:
-            print(f"{Colors.RED}Error in twitch_send_callback: {str(e)}{Colors.END}")
+        # print(f"{Colors.YELLOW}Sending response to Twitch...{Colors.END}")
+        # try:
+        #     self.twitch_send_callback(response)
+        # except Exception as e:
+        #     print(f"{Colors.RED}Error in twitch_send_callback: {str(e)}{Colors.END}")
     
     def enable_bot_core(self, enable=True):
         """Enable or disable using bot_core for responses"""
