@@ -10,6 +10,8 @@ from typing import Dict, Any, Optional, List, Tuple, Callable
 from bot_core import ask_question  # Import the ask_question function
 from .priority_core import InputItem, InputSource
 
+max_responses_stored = 15
+
 # ANSI color codes for highlighting console output
 class Colors:
     HEADER = '\033[95m'  # Magenta
@@ -105,7 +107,7 @@ class ResponseHandler:
         ))
         
         # Only keep the last 5 responses
-        if len(self._recent_responses) > 5:
+        if len(self._recent_responses) > max_responses_stored:
             self._recent_responses.pop(0)
     
     def _format_input(self, item: InputItem) -> str:
