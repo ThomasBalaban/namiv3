@@ -174,22 +174,27 @@ def process_hearing_line(line):
             handle_desktop_audio_input(transcription, source_type, confidence)
 
 # ====== VISION SYSTEM HANDLER ======
-
-def handle_vision_input(analysis_text, confidence, is_summary=False):
+def handle_vision_input(analysis_text, confidence, metadata=None):
     """Process input from the vision system"""
     if priority_system is None:
         return
         
+    is_summary = metadata.get('type') == 'summary' if metadata else False
+    
     if confidence < 0.5 and not is_summary:
         return  # Skip low confidence analyses unless it's a summary
     
-    # Create metadata
-    metadata = {
+    # Create standard metadata if not provided
+    if metadata is None:
+        metadata = {}
+    
+    # Add required fields for priority system
+    metadata.update({
         'confidence': confidence,
         'is_summary': is_summary,
         'relevance': confidence * (1.5 if is_summary else 1.0),  # Boost summaries
         'urgency': 0.3 if is_summary else 0.2
-    }
+    })
     
     # Add to priority system
     priority_system.add_input(
@@ -198,22 +203,50 @@ def handle_vision_input(analysis_text, confidence, is_summary=False):
         metadata
     )
 
+def process_vision_queue_item(item):
+    """Process an item from the vision queue"""
+    if not item:
+        return
+        
+    # Extract standard fields from queue item
+    source = item.get('source', 'VISUAL_CHANGE')
+    text = item.get('text', '')
+    score = item.get('score', 0.7)
+    metadata = item.get('metadata', {})
+    item_type = item.get('type', 'analysis')
+    
+    # Skip empty text
+    if not text.strip():
+        return
+        
+    # Skip error messages unless in debug mode
+    if item_type == 'error' and not metadata.get('debug', False):
+        return
+        
+    # Pass to the handle_vision_input function with full metadata
+    metadata['type'] = item_type  # Ensure type is in metadata
+    handle_vision_input(text, score, metadata)
+
+# Legacy line processor for console output compatibility
 def process_vision_line(line):
-    """Process a line of output from the vision system"""
+    """Process a line of output from the vision system (legacy method)"""
     # Skip empty lines
     if not line.strip():
         return
         
     # Determine line type and extract content
     is_summary = False
-    confidence = 0.5  # Default confidence
+    confidence = 0.7  # Default confidence
     analysis_text = ""
     
-    if "[SUMMARY]" in line or "[Summary]" in line:
+    if "[VISION] 👁️" in line:
+        # New format from updated vision system
+        analysis_text = line.replace("[VISION] 👁️", "").strip()
+    elif "[SUMMARY]" in line or "[Summary]" in line:
         is_summary = True
         analysis_text = line.replace("[SUMMARY]", "").replace("[Summary]", "").strip()
-        confidence = 0.8  # Higher confidence for summaries
-    elif any(x in line for x in ["Error", "Exception", "WARNING"]):
+        confidence = 0.9  # Higher confidence for summaries
+    elif any(x in line for x in ["Error", "Exception", "WARNING", "[VISION ERROR]"]):
         # Skip error messages
         return
     elif line.strip().startswith(("0.", "1.", "2.")):
@@ -223,6 +256,13 @@ def process_vision_line(line):
             time_part = parts[0].strip()
             content_part = parts[1].strip()
             analysis_text = content_part.strip()
+            
+            # Try to extract processing time for confidence
+            try:
+                proc_time = float(time_part)
+                confidence = min(0.95, max(0.5, 1.0 - (proc_time / 10.0)))
+            except ValueError:
+                pass
     else:
         # Any other analysis output
         analysis_text = line.strip()
@@ -231,7 +271,13 @@ def process_vision_line(line):
     if not analysis_text:
         return
     
-    handle_vision_input(analysis_text, confidence, is_summary)
+    # Create metadata with type information
+    metadata = {
+        'type': 'summary' if is_summary else 'analysis',
+        'source_type': 'VISION'
+    }
+    
+    handle_vision_input(analysis_text, confidence, metadata)
 
 # ====== CONSOLE INPUT HANDLER ======
 
