@@ -1,9 +1,14 @@
+"""
+Response Handler for PeepingNami Bot
+
+Processes prioritized inputs and generates appropriate responses using bot_core.
+"""
+
 import threading
 import time
 from typing import Dict, Any, Optional, List, Tuple, Callable
 from bot_core import ask_question  # Import the ask_question function
 from .priority_core import InputItem, InputSource
-from .azure_tts import speak, enable_tts, set_voice, is_tts_enabled  # Import Azure TTS functions
 
 max_responses_stored = 15
 
@@ -28,21 +33,6 @@ class ResponseHandler:
         self.twitch_send_callback = None
         # Recent responses for deduplication
         self._recent_responses = []
-        # TTS is always enabled with fixed voice
-        self.use_tts = True
-        
-        # Try to import config to get voice preference
-        try:
-            import sys
-            import os
-            sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-            import config
-            voice_name = getattr(config, 'AZURE_VOICE_NAME', "en-US-JennyNeural")
-        except (ImportError, AttributeError):
-            voice_name = "en-US-JennyNeural"
-            
-        # Set the voice
-        set_voice(voice_name)
     
     def set_llm_callback(self, callback):
         """Set the callback function for getting responses from the LLM (fallback)"""
@@ -86,7 +76,7 @@ class ResponseHandler:
         # Store this response to avoid repetition
         self._store_recent_response(item, response)
             
-        # Display the response in console and use TTS if enabled
+        # Display the response in console
         self._display_response(item, response)
     
     def _is_too_similar_to_recent(self, item: InputItem) -> bool:
@@ -116,7 +106,7 @@ class ResponseHandler:
             time.time()
         ))
         
-        # Only keep the last N responses
+        # Only keep the last 5 responses
         if len(self._recent_responses) > max_responses_stored:
             self._recent_responses.pop(0)
     
@@ -152,7 +142,7 @@ class ResponseHandler:
             return item.text
     
     def _display_response(self, item: InputItem, response: str):
-        """Display the response in console and activate TTS"""
+        """Display the response in console"""
         
         # Format with highlighting to make it stand out
         source_type = item.source.name
@@ -172,11 +162,6 @@ class ResponseHandler:
         print(f"{Colors.BOLD}{Colors.BLUE}{border}{Colors.END}")
         print("\n")  # Add extra spacing
         
-        # Always activate TTS for all responses
-        if is_tts_enabled():
-            print(f"{Colors.YELLOW}[TTS] Speaking response...{Colors.END}")
-            speak(response, blocking=False)  # Non-blocking to avoid delaying the conversation
-        
         # Reset prompt
         print(f"{Colors.BOLD}You: {Colors.END}", end="", flush=True)
         
@@ -187,11 +172,11 @@ class ResponseHandler:
             getattr(item, 'broadcast_response', False)
         )
         
-        print(f"{Colors.YELLOW}Sending response to Twitch...{Colors.END}")
-        try:
-            self.twitch_send_callback(response)
-        except Exception as e:
-            print(f"{Colors.RED}Error in twitch_send_callback: {str(e)}{Colors.END}")
+        # print(f"{Colors.YELLOW}Sending response to Twitch...{Colors.END}")
+        # try:
+        #     self.twitch_send_callback(response)
+        # except Exception as e:
+        #     print(f"{Colors.RED}Error in twitch_send_callback: {str(e)}{Colors.END}")
     
     def enable_bot_core(self, enable=True):
         """Enable or disable using bot_core for responses"""
