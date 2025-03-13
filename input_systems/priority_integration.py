@@ -151,6 +151,13 @@ def shutdown_priority_system():
         priority_system.stop_processing()
         print("Priority system shut down")
 
+def toggle_tts(enable: bool) -> None:
+    """Enable or disable text-to-speech"""
+    global response_handler
+    
+    if response_handler:
+        response_handler.enable_tts(enable)
+
 # Function to get the current response handler
 def get_response_handler() -> Optional[ResponseHandler]:
     """Get the current response handler instance"""
