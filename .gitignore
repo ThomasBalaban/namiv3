@@ -5,4 +5,6 @@ config.py
 config.py
 local_models/*
 /__pycache__
+**/__pycache__
 /audio_captures/*
+input_systems/__pycache__/input_handlers.cpython-312.pyc
