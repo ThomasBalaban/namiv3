@@ -5,14 +5,12 @@ import numpy as np
 import sounddevice as sd
 import soundfile as sf
 import whisper
-import torch
 from threading import Thread, Event
 from queue import Queue
 
 # Use full package imports
 from audio_config import FS, CHUNK_DURATION, OVERLAP, MODEL_SIZE, DEVICE, SAVE_DIR, MAX_THREADS
 from audio_utils.classifier import SpeechMusicClassifier
-from audio_utils.audio_manager import TranscriptManager
 
 class SpeechMusicTranscriber:
     def __init__(self, keep_files=False, auto_detect=True, debug_mode=False, transcript_manager=None):

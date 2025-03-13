@@ -13,7 +13,7 @@ import queue
 import sys
 from collections import deque
 
-# Create a queue for external access to vision data
+# Create a queue for external access to ALL vision data
 vision_queue = queue.Queue()
 
 os.environ['OLLAMA_GPU_LAYERS'] = "99"
@@ -21,10 +21,7 @@ os.environ['OLLAMA_GGML_METAL'] = "1"
 os.environ['OLLAMA_KEEP_ALIVE'] = "0"
 
 # Configuration
-#MODEL = "llava:7b-v1.6-mistral-q4_K_M"  # Super fast but seems inaccurate for phas
 MODEL = "llava:13b"
-#MODEL = "llama3.2-vision:latest"
-#MODEL = "minicpm-v:latest"
 SUMMARY_MODEL = "mistral-nemo:latest"
 CAPTURE_REGION = MONITOR_AREA
 MIN_FRAME_CHANGE = 0.10
@@ -37,6 +34,7 @@ summary_lock = threading.Lock()
 last_summary_time = 0
 last_valid_frame = None  # Global frame tracker
 
+# Reduce OpenCV verbose output
 os.environ['CV_IMPORT_VERBOSE'] = '0'
 os.environ['CV_IO_SUPPRESS_MSGF'] = '1'
 os.environ['PYTHONWARNINGS'] = 'ignore::UserWarning'
@@ -54,6 +52,32 @@ def optimize_frame(frame):
     frame.save(buffered, format="JPEG", quality=95, optimize=True)
     return base64.b64encode(buffered.getvalue()).decode('utf-8')
 
+def add_to_queue(source_type, text, confidence=None, metadata=None):
+    """Unified function to add items to the vision queue"""
+    timestamp = time.strftime("%H:%M:%S")
+    
+    # Create consistent message format
+    message = {
+        "source": "VISUAL_CHANGE",  # Fixed source for compatibility with other systems
+        "type": source_type,        # Type for internal differentiation
+        "text": text,
+        "score": confidence or 0.7, # Default confidence score if not provided
+        "timestamp": timestamp,
+        "metadata": metadata or {}
+    }
+    
+    # Add to queue
+    vision_queue.put(message)
+    
+    # Print to console for debugging
+    if source_type == "error":
+        print(f"[VISION ERROR] {text}", flush=True)
+    else:
+        # Format consistently with other output in the system
+        print(f"[VISION] 👁️ {text}", flush=True)
+    
+    return message
+
 def generate_summary():
     with summary_lock:
         recent_analyses = list(analysis_history)[-5:]
@@ -63,7 +87,7 @@ def generate_summary():
 
     summary_prompt = f"""Current situation summary from these events:
     {chr(10).join(recent_analyses)}
-    Concise 1-3 sentence overview that attempts to guess what is happening currently from all of the image descriptions providing. Then try to guess what is currently happening. Try to follow the details of spcefic characters described."""
+    Concise 1-3 sentence overview that attempts to guess what is happening currently from all of the image descriptions providing. Then try to guess what is currently happening. Try to follow the details of specific characters described."""
     
     try:
         response = ollama.generate(
@@ -71,32 +95,18 @@ def generate_summary():
             prompt=summary_prompt,
             options={'temperature': 0.2, 'num_predict': 250}
         )
-        summary_text = "Summary: " + response['response']
+        summary_text = response['response']
         
-        # Add to the queue for external access
-        vision_queue.put({
-            "type": "summary",
-            "text": summary_text,
-            "timestamp": time.strftime("%H:%M:%S")
+        # Add to queue with confidence score
+        add_to_queue("summary", summary_text, 0.9, {
+            "model": SUMMARY_MODEL,
+            "source_type": "SUMMARY"
         })
-        
-        # Print with explicit flush to ensure immediate output
-        print(f"\n[SUMMARY] {summary_text}\n", flush=True)
         
         return summary_text
     except Exception as e:
         error_msg = f"Summary error: {str(e)}"
-        
-        # Add error to the queue
-        vision_queue.put({
-            "type": "error",
-            "text": error_msg,
-            "timestamp": time.strftime("%H:%M:%S")
-        })
-        
-        # Print with explicit flush
-        print(f"\nError: {error_msg}\n", flush=True)
-        
+        add_to_queue("error", error_msg, 0.1)
         return error_msg
 
 def validate_frame(frame):
@@ -108,8 +118,19 @@ def validate_frame(frame):
     current_np = np.array(frame)
     last_np = np.array(last_valid_frame)
     
+    # Ensure arrays are compatible for comparison
+    if current_np.shape != last_np.shape:
+        return True
+    
     diff = cv2.absdiff(current_np, last_np)
-    return (np.count_nonzero(diff) / diff.size) > MIN_FRAME_CHANGE
+    change_percent = np.count_nonzero(diff) / diff.size
+    
+    # Add frame change information to queue if significant
+    if change_percent > MIN_FRAME_CHANGE:
+        add_to_queue("frame_change", f"Screen changed ({change_percent:.2f})", 
+                    change_percent, {"change_percent": change_percent})
+        return True
+    return False
 
 def summary_worker():
     global last_summary_time
@@ -144,31 +165,19 @@ def analyze_frame(frame):
         with summary_lock:
             analysis_history.append(f"{result}")
         
-        # Add the analysis to the queue for external access
-        vision_queue.put({
-            "type": "analysis",
-            "text": result,
+        # Add analysis to queue with confidence and metadata
+        confidence = min(0.95, max(0.5, 1.0 - (process_time / 10.0)))  # Higher confidence for faster processing
+        add_to_queue("analysis", result, confidence, {
             "process_time": process_time,
-            "timestamp": time.strftime("%H:%M:%S")
+            "model": MODEL,
+            "source_type": "VISUAL_ANALYSIS"
         })
         
-        # Print with explicit flush to ensure immediate output
-        print(f"\n{process_time:.1f}s: {result}", flush=True)
         return result, process_time
     
     except Exception as e:
         error_msg = f"Error: {str(e)}"
-        
-        # Add error to the queue
-        vision_queue.put({
-            "type": "error",
-            "text": error_msg,
-            "timestamp": time.strftime("%H:%M:%S")
-        })
-        
-        # Print with explicit flush
-        print(f"\nError: {error_msg}", flush=True)
-        
+        add_to_queue("error", error_msg, 0.1)
         return error_msg, 0
 
 def video_analysis_loop():
@@ -184,22 +193,30 @@ def video_analysis_loop():
     # Start summary worker
     threading.Thread(target=summary_worker, daemon=True).start()
     
-    print("Vision system initialized", flush=True)
+    add_to_queue("system", "Vision system initialized", 0.99)
 
     with mss() as sct:
         while True:
-            # Capture and validate frame
-            frame = Image.frombytes('RGB', sct.grab(CAPTURE_REGION).size, sct.grab(CAPTURE_REGION).rgb)
-            
-            if validate_frame(frame):
-                last_valid_frame = frame.copy()
+            try:
+                # Capture frame
+                frame = Image.frombytes('RGB', sct.grab(CAPTURE_REGION).size, sct.grab(CAPTURE_REGION).rgb)
                 
-                # Process synchronously
-                analyze_frame(last_valid_frame)
+                if validate_frame(frame):
+                    last_valid_frame = frame.copy()
+                    
+                    # Process synchronously
+                    analyze_frame(last_valid_frame)
+                else:
+                    # Even if frame didn't change, let the system know we're still active
+                    time.sleep(0.1)  # Prevent CPU overload
 
-            # Exit check
-            if cv2.waitKey(25) & 0xFF == ord('q'):
-                break
+                # Exit check
+                if cv2.waitKey(25) & 0xFF == ord('q'):
+                    break
+            except Exception as e:
+                error_msg = f"Frame capture error: {str(e)}"
+                add_to_queue("error", error_msg, 0.1)
+                time.sleep(1)  # Pause briefly on error
 
     cv2.destroyAllWindows()
 
@@ -215,7 +232,14 @@ if __name__ == "__main__":
         # For older Python versions
         sys.stdout = os.fdopen(sys.stdout.fileno(), 'w', 1)
     
-    print("Starting vision system", flush=True)
-    ollama.generate(model=MODEL, prompt="Ready")  # Warmup
-    print("Model loaded", flush=True)
-    video_analysis_loop()
+    add_to_queue("system", "Starting vision system", 0.99)
+    
+    try:
+        # Warmup model with timeout protection
+        add_to_queue("system", "Loading model...", 0.8)
+        ollama.generate(model=MODEL, prompt="Ready")
+        add_to_queue("system", "Model loaded successfully", 0.99)
+        video_analysis_loop()
+    except Exception as e:
+        add_to_queue("error", f"Startup error: {str(e)}", 0.1)
+        print(f"Fatal error: {str(e)}", flush=True)

@@ -30,7 +30,7 @@ def hearing_output_reader(process):
         elif any(x in line_str for x in ["Loading", "Starting", "Initializing", "Error", "Vosk"]):
             print(f"[Hearing] {line_str}")
 
-def start_hearing_system(debug_mode=False):
+def start_hearing_system(debug_mode=False, output_reader=None):
     """Start the hearing.py script as a subprocess"""
     global hearing_process
     
@@ -51,9 +51,12 @@ def start_hearing_system(debug_mode=False):
         # Register cleanup function to terminate the process on exit
         atexit.register(lambda: hearing_process.terminate() if hearing_process else None)
         
+        # Use custom output reader if provided, otherwise use default
+        reader_func = output_reader if output_reader else hearing_output_reader
+        
         # Start thread to read its output
         output_thread = threading.Thread(
-            target=hearing_output_reader,
+            target=reader_func,
             args=(hearing_process,),
             daemon=True
         )

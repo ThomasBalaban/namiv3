@@ -13,15 +13,24 @@ from audio_utils.audio_manager import TranscriptManager
 def process_transcript(message):
     """
     Process incoming transcripts from the message queue.
-    This is where you'd integrate with an AI system.
+    Format the output according to the source for main.py to recognize.
     """
     source = message.get("source", "unknown")
     text = message.get("text", "")
     timestamp = message.get("timestamp", "")
     
-    # This is where you would send the transcription to your AI system
-    # For now, we'll just print a message
-    print(f"AI RECEIVED: [{timestamp}] ({source}) {text}")
+    # Format the output differently based on source
+    if source.lower() == "microphone":
+        # Format for microphone - this is what main.py is looking for
+        print(f"[Microphone Input] {text}")
+    elif source.lower() in ["desktop", "speech", "music"]:
+        # Format for desktop audio - main.py expects this format
+        confidence = message.get("metadata", {}).get("confidence", 0.7)
+        source_type = message.get("metadata", {}).get("source_type", "SPEECH")
+        print(f"[{source_type} {confidence:.2f}] {text}")
+    else:
+        # Fallback format for other sources
+        print(f"AI RECEIVED: [{timestamp}] ({source}) {text}")
 
 def setup_signal_handlers(transcript_manager):
     """Set up signal handlers for graceful shutdown"""
@@ -55,9 +64,39 @@ def main():
                         help="Message queue name")
     args = parser.parse_args()
     
-    # Initialize the transcript manager if enabled
+    # Initialize transcript manager
     transcript_manager = None
-    if not (args.no_mongo and args.no_mq):
+    
+    # If both storage options are disabled, create a memory-only manager
+    if args.no_mongo and args.no_mq:
+        print(f"Creating memory-only transcript manager...")
+        transcript_manager = TranscriptManager(debug=args.debug)
+        
+        # Create a simple processing function
+        def direct_process(source, text, metadata=None):
+            process_transcript({
+                "source": source,
+                "text": text,
+                "timestamp": time.strftime("%H:%M:%S"),
+                "metadata": metadata or {}
+            })
+            
+        # Set up a simplified publish_transcript that calls process_transcript directly
+        old_publish = transcript_manager.publish_transcript
+        def new_publish(source, text, timestamp=None, metadata=None):
+            # Still call the original for any in-memory tracking
+            old_publish(source, text, timestamp, metadata)
+            # Also process immediately
+            process_transcript({
+                "source": source,
+                "text": text,
+                "timestamp": timestamp or time.strftime("%H:%M:%S"),
+                "metadata": metadata or {}
+            })
+        transcript_manager.publish_transcript = new_publish
+        
+    else:
+        # Try to initialize with storage
         try:
             print(f"Initializing transcript manager...")
             transcript_manager = TranscriptManager(
@@ -80,7 +119,23 @@ def main():
         except Exception as e:
             print(f"Error initializing transcript manager: {e}")
             print(f"Running without transcript storage or messaging.")
-            transcript_manager = None
+            
+            # Fall back to memory-only manager
+            transcript_manager = TranscriptManager(debug=args.debug)
+            
+            # Set up direct processing
+            old_publish = transcript_manager.publish_transcript
+            def new_publish(source, text, timestamp=None, metadata=None):
+                # Call the original for any in-memory tracking
+                old_publish(source, text, timestamp, metadata)
+                # Also process immediately
+                process_transcript({
+                    "source": source,
+                    "text": text,
+                    "timestamp": timestamp or time.strftime("%H:%M:%S"),
+                    "metadata": metadata or {}
+                })
+            transcript_manager.publish_transcript = new_publish
             
     # Start the Vosk microphone transcription in a separate thread
     print("Starting microphone transcription...")

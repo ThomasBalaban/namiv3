@@ -11,7 +11,7 @@ BOTNAME = "peepingnami"  # Bot's name
 
 # Global state
 conversation_history = []  # Initialize an empty list to store conversation history
-MAX_CONVERSATION_LENGTH = 10
+MAX_CONVERSATION_LENGTH = 8
 message_lock = asyncio.Lock()  # Create an asyncio lock to prevent concurrent message handling.
 
 def censor_text(text):
@@ -88,7 +88,7 @@ def ask_question(question):
 
 def start_bot_console():
     """Starts the bot with console interaction."""
-    print(f"{BOTNAME} is ready. Start chatting!")
+    print(f"BOT_CORE.PY:  {BOTNAME} is ready. Start chatting!")
 
     while True:
         question = input("You: ")

@@ -4,10 +4,12 @@ import subprocess
 import atexit
 import importlib.util
 import time
+from queue import Empty
 
 # Global variables
 vision_process = None
 vision_queue = None
+input_handlers = None
 
 def vision_output_reader(process):
     """Read and format output from the vision.py process"""
@@ -30,6 +32,10 @@ def vision_output_reader(process):
             # Print error messages
             print(f"\n[VISION ERROR] ⚠️ {line_str}")
             print("You: ", end="", flush=True)
+        elif line_str.startswith("[VISION]"):
+            # New format from updated vision system
+            print(f"\n{line_str}")
+            print("You: ", end="", flush=True)
         elif line_str.strip().startswith(("0.", "1.", "2.")):
             # Analysis line with time prefix (e.g. "1.2s: The image shows...")
             parts = line_str.split(":", 1)
@@ -46,35 +52,54 @@ def vision_output_reader(process):
                 print("You: ", end="", flush=True)
 
 def monitor_vision_queue():
-    """Monitor the vision queue for new items"""
+    """Monitor the vision queue for new items and send to input handlers"""
     if vision_queue is None:
         print("Vision queue is not available.")
         return
         
     print("Starting vision queue monitor...")
-    # Track processed summaries to avoid duplication
+    # Track processed items to avoid duplication
     processed_items = set()
     
     while True:
         try:
             # Check if there are items in the queue
-            item = vision_queue.get(block=False)
-            
+            try:
+                item = vision_queue.get(timeout=0.1)
+            except Empty:
+                time.sleep(0.05)
+                continue
+                
             # Create a unique identifier for this item
-            item_id = f"{item.get('type', 'unknown')}-{hash(item.get('text', ''))}"
+            item_text = item.get('text', '')
+            item_type = item.get('type', 'unknown')
+            item_id = f"{item_type}-{hash(item_text)}"
             
             # Only process if we haven't seen this exact item before
             if item_id not in processed_items:
-                if item['type'] == 'analysis':
-                    print(f"\n[VISION QUEUE] 👁️ Analysis: {item['text']}")
+                # 1. Send to input handlers if available
+                if input_handlers is not None and hasattr(input_handlers, 'process_vision_queue_item'):
+                    try:
+                        input_handlers.process_vision_queue_item(item)
+                    except Exception as e:
+                        print(f"\n[VISION QUEUE] Error processing item: {e}")
+                
+                # 2. Display on console based on type
+                if item_type == 'analysis':
+                    print(f"\n[VISION QUEUE] 👁️ Analysis: {item_text}")
                     print("You: ", end="", flush=True)
-                elif item['type'] == 'summary':
-                    # Only print summaries from queue if they're not coming through stdout
-                    # This is a backup in case the summary doesn't appear in stdout
-                    print(f"\n[VISION QUEUE] 👁️ Summary: {item['text']}")
+                elif item_type == 'summary':
+                    print(f"\n[VISION QUEUE] 👁️ Summary: {item_text}")
                     print("You: ", end="", flush=True)
-                elif item['type'] == 'error':
-                    print(f"\n[VISION QUEUE] ⚠️ Error: {item['text']}")
+                elif item_type == 'error':
+                    print(f"\n[VISION QUEUE] ⚠️ Error: {item_text}")
+                    print("You: ", end="", flush=True)
+                elif item_type == 'frame_change':
+                    # Generally don't need to print frame changes
+                    pass
+                else:
+                    # Print other types with their type label
+                    print(f"\n[VISION QUEUE] 👁️ {item_type.capitalize()}: {item_text}")
                     print("You: ", end="", flush=True)
                 
                 # Track that we've processed this item
@@ -86,13 +111,24 @@ def monitor_vision_queue():
             
             # Mark as done
             vision_queue.task_done()
-        except Exception:
-            # No items in queue, wait a bit
+        except Exception as e:
+            # Handle any errors
+            print(f"\n[VISION QUEUE] Error: {e}")
             time.sleep(0.1)
 
-def start_vision_system():
+def set_input_handlers(handlers_module):
+    """Set the input handlers module to use for vision queue items"""
+    global input_handlers
+    input_handlers = handlers_module
+    print(f"Input handlers set: {handlers_module.__name__ if handlers_module else None}")
+
+def start_vision_system(output_reader=None, handlers_module=None):
     """Start the vision.py script as a subprocess"""
-    global vision_process, vision_queue
+    global vision_process, vision_queue, input_handlers
+    
+    # Set input handlers if provided
+    if handlers_module:
+        set_input_handlers(handlers_module)
     
     try:
         # Try to import the vision module to access its queue
@@ -126,9 +162,12 @@ def start_vision_system():
         # Register cleanup function to terminate the process on exit
         atexit.register(lambda: vision_process.terminate() if vision_process else None)
         
+        # Use custom output reader if provided, otherwise use default
+        reader_func = output_reader if output_reader else vision_output_reader
+        
         # Start thread to read its output
         output_thread = threading.Thread(
-            target=vision_output_reader,
+            target=reader_func,
             args=(vision_process,),
             daemon=True
         )
