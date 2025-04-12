@@ -8,3 +8,4 @@ local_models/*
 **/__pycache__
 /audio_captures/*
 input_systems/__pycache__/input_handlers.cpython-312.pyc
+azure_speech.log
