@@ -52,14 +52,9 @@ def main():
     parser = argparse.ArgumentParser(description="Audio Transcription System")
     parser.add_argument("--debug", action="store_true", help="Enable debug mode")
     parser.add_argument("--keep-files", action="store_true", help="Keep audio files after processing")
-    parser.add_argument("--no-mongo", action="store_true", help="Disable MongoDB storage")
     parser.add_argument("--no-mq", action="store_true", help="Disable message queue")
-    parser.add_argument("--mongo-uri", type=str, default="mongodb://localhost:27017/", 
-                        help="MongoDB connection URI")
     parser.add_argument("--rabbitmq-uri", type=str, default="amqp://guest:guest@localhost:5672/", 
                         help="RabbitMQ connection URI")
-    parser.add_argument("--db-name", type=str, default="transcriptions", 
-                        help="Database name")
     parser.add_argument("--queue-name", type=str, default="transcriptions", 
                         help="Message queue name")
     args = parser.parse_args()
@@ -67,8 +62,8 @@ def main():
     # Initialize transcript manager
     transcript_manager = None
     
-    # If both storage options are disabled, create a memory-only manager
-    if args.no_mongo and args.no_mq:
+    # If message queue is disabled, create a memory-only manager
+    if args.no_mq:
         print(f"Creating memory-only transcript manager...")
         transcript_manager = TranscriptManager(debug=args.debug)
         
@@ -96,13 +91,10 @@ def main():
         transcript_manager.publish_transcript = new_publish
         
     else:
-        # Try to initialize with storage
+        # Try to initialize with message queue only
         try:
-            print(f"Initializing transcript manager...")
+            print(f"Initializing transcript manager with message queue only...")
             transcript_manager = TranscriptManager(
-                mongodb_uri=args.mongo_uri,
-                rabbitmq_uri=args.rabbitmq_uri,
-                db_name=args.db_name,
                 queue_name=args.queue_name,
                 debug=args.debug
             )
@@ -113,12 +105,9 @@ def main():
             
             # Set up signal handlers for graceful shutdown
             setup_signal_handlers(transcript_manager)
-            
-            # Create a directory to store MongoDB data if it doesn't exist
-            os.makedirs("data/db", exist_ok=True)
         except Exception as e:
             print(f"Error initializing transcript manager: {e}")
-            print(f"Running without transcript storage or messaging.")
+            print(f"Running without messaging.")
             
             # Fall back to memory-only manager
             transcript_manager = TranscriptManager(debug=args.debug)

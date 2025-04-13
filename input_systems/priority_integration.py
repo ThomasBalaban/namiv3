@@ -1,15 +1,5 @@
-"""
-Priority System Integration for PeepingNami Bot
-
-Connects the priority system with bot components.
-"""
-
-import asyncio
-import threading
 from typing import Callable, Optional
-
-# Import the priority components
-from .priority_core import PrioritySystem, InputSource, ConversationState
+from .priority_core import PrioritySystem, ConversationState
 from .input_handlers import set_priority_system, handle_console_input
 from .response_handler import ResponseHandler
 

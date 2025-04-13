@@ -1,8 +1,3 @@
-"""
-Priority Input System Package
-This package contains the prioritization system for handling
-multiple input sources and determining which inputs trigger responses.
-"""
 # Expose key components at package level for easier imports
 from .priority_core import PrioritySystem, InputSource, ConversationState, InputItem
 from .priority_integration import (

@@ -7,9 +7,7 @@ import soundfile as sf
 import whisper
 from threading import Thread, Event
 from queue import Queue
-
-# Use full package imports
-from audio_config import FS, CHUNK_DURATION, OVERLAP, MODEL_SIZE, DEVICE, SAVE_DIR, MAX_THREADS
+from config import FS, CHUNK_DURATION, OVERLAP, MODEL_SIZE, DEVICE, SAVE_DIR, MAX_THREADS
 from audio_utils.classifier import SpeechMusicClassifier
 
 class SpeechMusicTranscriber:
@@ -17,12 +15,20 @@ class SpeechMusicTranscriber:
         os.makedirs(SAVE_DIR, exist_ok=True)
         
         print(f"Loading Whisper model: {MODEL_SIZE} on {DEVICE}")
-        try:
-            self.model = whisper.load_model(MODEL_SIZE, device=DEVICE)
-            if DEVICE == "cuda":
+        try:            
+            self.model = whisper.load_model(MODEL_SIZE)
+            
+            # Move model to specified device if needed
+            if DEVICE == "cuda" and hasattr(self.model, "to"):
+                self.model = self.model.to(DEVICE)
+                # For CUDA devices, we can use half precision
                 self.model = self.model.half()
+                
         except Exception as e:
             print(f"Error loading model: {e}")
+            print(f"Detailed error information to help fix the issue:")
+            import traceback
+            traceback.print_exc()
             raise
             
         self.result_queue = Queue()
@@ -225,7 +231,7 @@ class SpeechMusicTranscriber:
             self.classifier.current_type = audio_type
             # Also set history to this type for persistence
             self.classifier.history = [audio_type] * self.classifier.max_history
-            # print(f"Audio type changed: {prev_type.upper()} → {audio_type.upper()}")
+            print(f"Audio type changed: {prev_type.upper()} → {audio_type.upper()}")
             return True
         return False
         
@@ -331,3 +337,32 @@ class SpeechMusicTranscriber:
             # Final cleanup of any remaining files
             if not self.keep_files:
                 self.cleanup_files()
+
+# Add this code to make the module executable
+def main():
+    """
+    Main entry point when the module is run directly
+    """
+    import argparse
+    
+    parser = argparse.ArgumentParser(description="Desktop audio transcription with Whisper")
+    parser.add_argument("--debug", action="store_true", help="Enable debug mode")
+    parser.add_argument("--keep-files", action="store_true", help="Keep audio files after transcription")
+    parser.add_argument("--manual", action="store_true", help="Disable auto-detection of audio type")
+    args = parser.parse_args()
+    
+    try:
+        transcriber = SpeechMusicTranscriber(
+            keep_files=args.keep_files,
+            auto_detect=not args.manual,
+            debug_mode=args.debug
+        )
+        transcriber.run()
+    except KeyboardInterrupt:
+        print("\nStopped by user")
+    except Exception as e:
+        print(f"Error: {str(e)}")
+
+# This will make the module executable when run directly
+if __name__ == "__main__":
+    main()

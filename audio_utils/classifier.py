@@ -1,6 +1,6 @@
 import numpy as np
 import torch
-from audio_config import FS
+from config import FS
 
 class SpeechMusicClassifier:
     """Simple classifier to detect speech vs music"""
@@ -9,7 +9,7 @@ class SpeechMusicClassifier:
         # Track the current audio type and history
         self.current_type = "speech"  # Default to speech
         self.history = []
-        self.max_history = 3  # Track last 5 chunks
+        self.max_history = 3  # Track last 3 chunks
         self.min_confidence = 0.2  # Minimum confidence to change state
         
     def classify(self, audio_chunk):
@@ -100,12 +100,12 @@ class SpeechMusicClassifier:
             elif avg_flux < 0.01:
                 music_features += 1
                 
-           # Swap the decision logic
+            # Correct decision logic
             if speech_features > music_features:
-                detected_type = "music"  # Changed from "speech"
+                detected_type = "speech"  # Fixed
                 confidence = 0.5 + 0.1 * speech_features
             else:
-                detected_type = "speech"  # Changed from "music"
+                detected_type = "music"  # Fixed
                 confidence = 0.5 + 0.1 * music_features
                 
             # Update history
@@ -119,10 +119,10 @@ class SpeechMusicClassifier:
             
             # Require at least 60% agreement to change state
             if speech_count >= 0.6 * len(self.history) and self.current_type != "speech":
-                print(f"Audio type changed: {self.current_type} → speech")
+                print(f"Audio type changed: {self.current_type.upper()} → SPEECH")
                 self.current_type = "speech"
             elif music_count >= 0.6 * len(self.history) and self.current_type != "music":
-                print(f"Audio type changed: {self.current_type} → music")
+                print(f"Audio type changed: {self.current_type.upper()} → MUSIC")
                 self.current_type = "music"
                 
             return self.current_type, confidence
