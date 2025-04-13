@@ -2,16 +2,15 @@ import asyncio
 import threading
 import inspect
 import time
-from config import TARGET_CHANNEL
-from bot_core import add_message, ask_question, BOTNAME
+from nami import twitch_chat
+from nami.config import TARGET_CHANNEL
+from nami.bot_core import add_message, ask_question, BOTNAME
 
-# Import twitch_chat module directly to avoid circular imports
-import twitch_chat
 
 # Import the ResponseHandler (if available)
 try:
-    from input_systems.priority_integration import get_response_handler
-    from input_systems.priority_core import InputItem, InputSource
+    from nami.input_systems.priority_integration import get_response_handler
+    from nami.input_systems.priority_core import InputItem, InputSource
 except ImportError:
     # Fallback if imports aren't available
     get_response_handler = lambda: None

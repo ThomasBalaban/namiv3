@@ -1,10 +1,14 @@
+# vision_utils/vision_system.py
+
 import sys
 import threading
 import subprocess
 import atexit
-import importlib.util
 import time
 from queue import Empty
+
+# Import the vision module from the package structure
+from nami.vision_utils import vision
 
 # Global variables
 vision_process = None
@@ -131,14 +135,9 @@ def start_vision_system(output_reader=None, handlers_module=None):
         set_input_handlers(handlers_module)
     
     try:
-        # Try to import the vision module to access its queue
-        spec = importlib.util.spec_from_file_location("vision", "vision.py")
-        vision_module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(vision_module)
-        
-        # Get access to the vision queue
-        if hasattr(vision_module, 'get_vision_queue'):
-            vision_queue = vision_module.get_vision_queue()
+        # Get the vision queue directly from the imported module
+        if hasattr(vision, 'get_vision_queue'):
+            vision_queue = vision.get_vision_queue()
             
             # Start a thread to monitor the queue
             queue_thread = threading.Thread(
@@ -149,8 +148,8 @@ def start_vision_system(output_reader=None, handlers_module=None):
             
             print("Vision queue monitoring started.")
         
-        # Start the process with full buffer size to avoid truncation
-        cmd = [sys.executable, "vision.py"]
+        # Use the module's file path directly
+        cmd = [sys.executable, vision.__file__]
         vision_process = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,

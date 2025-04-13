@@ -3,6 +3,9 @@ import threading
 import subprocess
 import atexit
 
+# Import the hearing module from the package structure
+from nami.audio_utils import hearing
+
 # Global variables
 hearing_process = None
 
@@ -13,7 +16,7 @@ def hearing_output_reader(process):
         line_str = line.decode('utf-8').rstrip()
         
         # Check if it's a transcription line
-        if ("[Microphone Input]" in line_str or 
+        if ("[Microphone Input]" in line_str or
             ("]" in line_str and any(x in line_str for x in ["SPEECH", "MUSIC"]))):
             
             # Format based on source
@@ -34,10 +37,11 @@ def start_hearing_system(debug_mode=False, output_reader=None):
     """Start the hearing.py script as a subprocess"""
     global hearing_process
     
-    cmd = [sys.executable, "hearing.py"]
+    # Use the module's file path directly
+    cmd = [sys.executable, hearing.__file__]
     if debug_mode:
         cmd.append("--debug")
-        
+    
     try:
         # Start the process without specifying bufsize to avoid the warning
         hearing_process = subprocess.Popen(

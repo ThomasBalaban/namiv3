@@ -5,10 +5,9 @@ import time
 import signal
 import sys
 import atexit
-
-from audio_utils.transcriber import SpeechMusicTranscriber
-from audio_utils.microphone import transcribe_microphone
-from audio_utils.audio_manager import TranscriptManager
+from nami.audio_utils.transcriber import SpeechMusicTranscriber
+from nami.audio_utils.microphone import transcribe_microphone
+from nami.audio_utils.audio_manager import TranscriptManager
 
 def process_transcript(message):
     """

@@ -1,7 +1,7 @@
 
 import time
-from bot_core import ask_question
-from .priority_core import InputItem, InputSource
+from nami.bot_core import ask_question
+from nami.input_systems.priority_core import InputItem, InputSource
 
 max_responses_stored = 15
 

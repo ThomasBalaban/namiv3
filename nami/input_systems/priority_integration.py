@@ -1,7 +1,7 @@
 from typing import Callable, Optional
-from .priority_core import PrioritySystem, ConversationState
-from .input_handlers import set_priority_system, handle_console_input
-from .response_handler import ResponseHandler
+from nami.input_systems.priority_core import PrioritySystem, ConversationState
+from nami.input_systems.input_handlers import set_priority_system, handle_console_input
+from nami.input_systems.response_handler import ResponseHandler
 
 # Priority system instance
 priority_system = None
