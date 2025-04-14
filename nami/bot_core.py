@@ -3,7 +3,7 @@ import requests
 import json
 import asyncio
 import re
-from hard_filter import banned_words
+from nami.hard_filter import banned_words
 
 # Constants
 OLLAMA_API_URL = "http://localhost:11434/api/chat"

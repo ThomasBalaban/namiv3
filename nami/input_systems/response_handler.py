@@ -1,14 +1,7 @@
-"""
-Response Handler for PeepingNami Bot
 
-Processes prioritized inputs and generates appropriate responses using bot_core.
-"""
-
-import threading
 import time
-from typing import Dict, Any, Optional, List, Tuple, Callable
-from bot_core import ask_question  # Import the ask_question function
-from .priority_core import InputItem, InputSource
+from nami.bot_core import ask_question
+from nami.input_systems.priority_core import InputItem, InputSource
 
 max_responses_stored = 15
 

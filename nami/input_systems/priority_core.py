@@ -1,15 +1,9 @@
-"""
-Core Priority System for PeepingNami Bot
-
-Contains the main PrioritySystem class and basic data structures.
-"""
-
 import time
 import threading
 import queue
 from dataclasses import dataclass
 from enum import Enum, auto
-from typing import Dict, List, Optional, Any, Callable
+from typing import Dict, Optional, Any, Callable
 
 # Define input source types
 class InputSource(Enum):

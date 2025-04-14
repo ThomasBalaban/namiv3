@@ -1,11 +1,4 @@
-"""
-Priority Scoring System for PeepingNami Bot
-
-Contains the scoring logic for determining input priorities.
-"""
-
 import time
-from typing import Dict, List, Any
 
 def calculate_input_score(item, source_weights, recent_inputs, last_response_time):
     """Calculate priority score for an input"""

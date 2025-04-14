@@ -2,15 +2,15 @@ import ollama
 import cv2
 import time
 import base64
-from mss import mss
-import numpy as np
-from PIL import Image
-from io import BytesIO
-from config import MONITOR_AREA
 import os
 import threading
 import queue
 import sys
+import numpy as np
+from mss import mss
+from PIL import Image
+from io import BytesIO
+from nami.config import MONITOR_AREA
 from collections import deque
 
 # Create a queue for external access to ALL vision data

@@ -2,9 +2,7 @@ from twitchAPI.twitch import Twitch
 from twitchAPI.oauth import UserAuthenticator
 from twitchAPI.type import AuthScope, ChatEvent
 from twitchAPI.chat import Chat, EventData, ChatMessage, ChatSub, ChatCommand
-import asyncio
-from config import APP_ID, APP_SECRET, TARGET_CHANNEL
-import webbrowser
+from nami.config import APP_ID, APP_SECRET, TARGET_CHANNEL
 
 USER_SCOPE = [AuthScope.CHAT_READ, AuthScope.CHAT_EDIT]
 CHROME_PATH = "C:/Program Files/Google/Chrome/Application/chrome.exe"  # Update this path if necessary

@@ -31,9 +31,16 @@ def suppress_vosk_logs():
         os.close(original_stderr_fd)
         os.close(original_stdout_fd)
 
+# Get the directory where this script is located
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+
 # ---- Rest of Configuration ----
 MICROPHONE_DEVICE_ID = 4
-MODEL_PATH = "local_models/vosk-model-en-us-0.22"
+MODEL_PATH = os.path.join(SCRIPT_DIR, "..", "..", "nami/local_models/vosk-model-en-us-0.22")
+
+print(f"Checking if model exists at: {os.path.abspath(MODEL_PATH)}")
+print(f"Directory exists: {os.path.isdir(MODEL_PATH)}")
+
 SAMPLE_RATE = 48000
 VOSK_RATE = 16000
 CHANNELS = 4

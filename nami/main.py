@@ -1,20 +1,16 @@
-#!/usr/bin/env python3
-"""
-Main entry point for the PeepingNami bot with Priority System.
-"""
 import argparse
 import signal
 import threading
 import os
-from bot_core import ask_question, BOTNAME
-from hearing_system import start_hearing_system, stop_hearing_system
-from vision_system import start_vision_system, stop_vision_system, check_vision_queue
-from chat_interface import init_twitch_bot
-from config import TARGET_CHANNEL
-from input_systems.response_handler import ResponseHandler
+from nami.bot_core import ask_question, BOTNAME
+from nami.audio_utils.hearing_system import start_hearing_system, stop_hearing_system
+from nami.vision_utils import start_vision_system, stop_vision_system, check_vision_queue
+from nami.chat_interface import init_twitch_bot
+from nami.config import TARGET_CHANNEL
+from nami.input_systems.response_handler import ResponseHandler
 
 # Import priority system components from the input_systems folder
-from input_systems import (
+from nami.input_systems import (
     init_priority_system,
     shutdown_priority_system, 
     process_console_command,
@@ -36,7 +32,6 @@ def signal_handler(sig, frame):
         # If anything fails, force exit immediately
         os._exit(0)
 
-# ====== MODIFIED OUTPUT READERS ======
 
 class PriorityHearingOutputReader:
     """Reading and processing hearing output with priority system"""
