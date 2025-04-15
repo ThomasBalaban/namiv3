@@ -4,7 +4,7 @@ import threading
 import os
 from nami.bot_core import ask_question, BOTNAME
 from nami.audio_utils.hearing_system import start_hearing_system, stop_hearing_system
-from nami.vision_utils import start_vision_system, stop_vision_system, check_vision_queue
+from nami.vision_utils import start_vision_system, stop_vision_system
 from nami.chat_interface import init_twitch_bot
 from nami.config import TARGET_CHANNEL
 from nami.input_systems.response_handler import ResponseHandler
