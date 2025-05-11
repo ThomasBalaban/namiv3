@@ -23,10 +23,8 @@ class AudioProcessor:
             if not self.transcriber.processing_lock.is_set() and self.transcriber.active_threads < MAX_THREADS * 0.5:
                 # Resume processing if thread count is low enough
                 self.transcriber.processing_lock.set()
-                if self.transcriber.debug_mode:
-                    print("Resuming audio processing")
                     
-            if status and self.transcriber.debug_mode:
+            if status:
                 print(f"Audio status: {status}")
             
             # Skip if stopped
@@ -39,7 +37,7 @@ class AudioProcessor:
             # Skip processing if audio is too quiet (global noise gate)
             rms_amplitude = np.sqrt(np.mean(new_audio**2))
             if rms_amplitude < 0.0003:  # Very quiet audio
-                if self.transcriber.debug_mode and time.time() - self.last_noise_log > 5:
+                if time.time() - self.last_noise_log > 5:
                     print(f"Input too quiet: {rms_amplitude:.6f} RMS, skipping")
                     self.last_noise_log = time.time()
                 return
@@ -57,8 +55,7 @@ class AudioProcessor:
             if len(self.audio_buffer) > max_buffer_size:
                 # Keep only the most recent data
                 self.audio_buffer = self.audio_buffer[-max_buffer_size:]
-                if self.transcriber.debug_mode:
-                    print("Warning: Audio buffer too large, trimming")
+                print("Warning: Audio buffer too large, trimming")
             
             # Process when buffer reaches target duration and we're not overloaded
             if (self.transcriber.processing_lock.is_set() and 
@@ -83,8 +80,7 @@ class AudioProcessor:
                 # If we get too many threads, temporary pause processing
                 if self.transcriber.active_threads >= MAX_THREADS * 0.8:
                     self.transcriber.processing_lock.clear()
-                    if self.transcriber.debug_mode:
-                        print(f"Pausing processing - too many active threads: {self.transcriber.active_threads}")
+                    print(f"Pausing processing - too many active threads: {self.transcriber.active_threads}")
                     
         except Exception as e:
             print(f"Audio callback error: {e}")

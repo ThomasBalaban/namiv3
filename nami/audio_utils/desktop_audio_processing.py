@@ -20,16 +20,12 @@ class AudioProcessing:
             # Pre-process audio
             # 1. Ensure minimum length
             if len(chunk) < FS * 0.5:
-                if self.processor.transcriber.debug_mode:
-                    print("Chunk too short, skipping")
                 self.processor.transcriber.active_threads -= 1
                 return
                 
             # 2. Apply noise gate - filter out very quiet audio completely
             amplitude = np.abs(chunk).mean()
             if amplitude < 0.005:  # Increased threshold for better noise rejection
-                if self.processor.transcriber.debug_mode:
-                    print(f"Chunk too quiet ({amplitude:.6f}), skipping")
                 self.processor.transcriber.active_threads -= 1
                 return
                 
@@ -68,8 +64,6 @@ class AudioProcessing:
                 
             # Skip processing completely if confidence is too low
             if confidence < 0.4:
-                if self.processor.transcriber.debug_mode:
-                    print(f"Low classification confidence ({confidence:.2f}), skipping")
                 self.processor.transcriber.active_threads -= 1
                 
                 # Clean up file
@@ -109,9 +103,6 @@ class AudioProcessing:
                 
                 if text and len(text) >= min_length:
                     self.processor.transcriber.result_queue.put((text, filename, audio_type, confidence))
-                elif self.processor.transcriber.debug_mode:
-                    # Only report empty text in debug mode
-                    self.processor.transcriber.result_queue.put((f"[Empty or too short: '{text}']", filename, audio_type, confidence))
                 else:
                     # Silently clean up files with no text
                     if not self.processor.transcriber.keep_files and filename and os.path.exists(filename):
@@ -119,9 +110,6 @@ class AudioProcessing:
                     
             except Exception as e:
                 print(f"Transcription error: {str(e)}")
-                # Continue operation despite errors
-                if self.processor.transcriber.debug_mode:
-                    self.processor.transcriber.result_queue.put((f"[Error: {type(e).__name__}]", filename, audio_type, confidence))
                 
                 # Clean up file on error
                 if not self.processor.transcriber.keep_files and filename and os.path.exists(filename):
@@ -198,8 +186,6 @@ class AudioProcessing:
         # Make sure content meets threshold before processing
         content_energy = np.sqrt(np.mean(whisper_input**2))
         if content_energy < 0.01:
-            if self.processor.transcriber.debug_mode:
-                print(f"Processed audio energy too low: {content_energy:.6f}")
             raise ValueError("Processed audio too quiet")
         
         # Run transcription with memory error protection

@@ -65,7 +65,7 @@ def add_to_queue(source_type, text, confidence=None, metadata=None):
     # Add to queue
     vision_queue.put(message)
     
-    # Print to console for debugging
+    # Print to console
     if source_type == "error":
         print(f"[VISION ERROR] {text}", flush=True)
     else:

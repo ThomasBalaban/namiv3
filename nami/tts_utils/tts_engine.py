@@ -29,7 +29,7 @@ def text_to_speech_file(text, style=DEFAULT_STYLE, style_degree=DEFAULT_STYLE_DE
             region=AZURE_SPEECH_REGION
         )
         
-        # Set voice and print the voice we're using for debugging
+        # Set voice and print the voice we're using
         speech_config.speech_synthesis_voice_name = AZURE_VOICE_NAME
         print(f"🗣️ Using voice: {AZURE_VOICE_NAME}")
         

@@ -47,39 +47,32 @@ def setup_signal_handlers(transcript_manager):
     if transcript_manager:
         atexit.register(transcript_manager.close)
 
-def main():
-    # Parse command line arguments
-    parser = argparse.ArgumentParser(description="Audio Transcription System")
-    parser.add_argument("--debug", action="store_true", help="Enable debug mode")
-    parser.add_argument("--keep-files", action="store_true", help="Keep audio files after processing")
-    parser.add_argument("--no-mq", action="store_true", help="Disable message queue")
-    parser.add_argument("--rabbitmq-uri", type=str, default="amqp://guest:guest@localhost:5672/", 
-                        help="RabbitMQ connection URI")
-    parser.add_argument("--queue-name", type=str, default="transcriptions", 
-                        help="Message queue name")
-    args = parser.parse_args()
-    
+def main():    
     # Initialize transcript manager
     transcript_manager = None
     
-    # If message queue is disabled, create a memory-only manager
-    if args.no_mq:
-        print(f"Creating memory-only transcript manager...")
-        transcript_manager = TranscriptManager(debug=args.debug)
+    
+    try:
+        print(f"Initializing transcript manager with message queue only...")
+        transcript_manager = TranscriptManager()
         
-        # Create a simple processing function
-        def direct_process(source, text, metadata=None):
-            process_transcript({
-                "source": source,
-                "text": text,
-                "timestamp": time.strftime("%H:%M:%S"),
-                "metadata": metadata or {}
-            })
-            
-        # Set up a simplified publish_transcript that calls process_transcript directly
+        # Start a consumer to process messages from the queue
+        transcript_manager.start_consumer(process_transcript)
+        print(f"Transcript manager ready.")
+        
+        # Set up signal handlers for graceful shutdown
+        setup_signal_handlers(transcript_manager)
+    except Exception as e:
+        print(f"Error initializing transcript manager: {e}")
+        print(f"Running without messaging.")
+        
+        # Fall back to memory-only manager
+        transcript_manager = TranscriptManager()
+        
+        # Set up direct processing
         old_publish = transcript_manager.publish_transcript
         def new_publish(source, text, timestamp=None, metadata=None):
-            # Still call the original for any in-memory tracking
+            # Call the original for any in-memory tracking
             old_publish(source, text, timestamp, metadata)
             # Also process immediately
             process_transcript({
@@ -89,48 +82,12 @@ def main():
                 "metadata": metadata or {}
             })
         transcript_manager.publish_transcript = new_publish
-        
-    else:
-        # Try to initialize with message queue only
-        try:
-            print(f"Initializing transcript manager with message queue only...")
-            transcript_manager = TranscriptManager(
-                queue_name=args.queue_name,
-                debug=args.debug
-            )
-            
-            # Start a consumer to process messages from the queue
-            transcript_manager.start_consumer(process_transcript)
-            print(f"Transcript manager ready.")
-            
-            # Set up signal handlers for graceful shutdown
-            setup_signal_handlers(transcript_manager)
-        except Exception as e:
-            print(f"Error initializing transcript manager: {e}")
-            print(f"Running without messaging.")
-            
-            # Fall back to memory-only manager
-            transcript_manager = TranscriptManager(debug=args.debug)
-            
-            # Set up direct processing
-            old_publish = transcript_manager.publish_transcript
-            def new_publish(source, text, timestamp=None, metadata=None):
-                # Call the original for any in-memory tracking
-                old_publish(source, text, timestamp, metadata)
-                # Also process immediately
-                process_transcript({
-                    "source": source,
-                    "text": text,
-                    "timestamp": timestamp or time.strftime("%H:%M:%S"),
-                    "metadata": metadata or {}
-                })
-            transcript_manager.publish_transcript = new_publish
             
     # Start the Vosk microphone transcription in a separate thread
     print("Starting microphone transcription...")
     mic_thread = threading.Thread(
         target=transcribe_microphone,
-        args=(args.debug, transcript_manager),
+        args=(transcript_manager),
         daemon=True
     )
     mic_thread.start()
@@ -138,9 +95,6 @@ def main():
     # Create and run the main Whisper transcriber
     print("Starting desktop audio transcription...")
     transcriber = SpeechMusicTranscriber(
-        keep_files=args.keep_files,
-        auto_detect=True,
-        debug_mode=args.debug,
         transcript_manager=transcript_manager
     )
     

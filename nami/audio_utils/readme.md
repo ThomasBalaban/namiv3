@@ -61,16 +61,6 @@ The system supports several command-line options:
 python hearing.py --help
 ```
 
-Key options:
-- `--debug`: Enable debug mode for more verbose output
-- `--keep-files`: Keep audio files after processing
-- `--no-mongo`: Disable MongoDB storage
-- `--no-mq`: Disable message queue
-- `--mongo-uri`: MongoDB connection URI (default: "mongodb://localhost:27017/")
-- `--rabbitmq-uri`: RabbitMQ connection URI (default: "amqp://guest:guest@localhost:5672/")
-- `--db-name`: Database name (default: "transcriptions")
-- `--queue-name`: Message queue name (default: "transcriptions")
-
 ## Using the Transcript Data
 
 The transcript data is stored in MongoDB and can be accessed in several ways:
@@ -116,12 +106,3 @@ def process_transcript(message):
 ```
 
 Your AI system will now receive real-time transcripts from both desktop audio and microphone input through a single, consistent interface.
-
-## Troubleshooting
-
-If you encounter issues:
-
-1. Check that MongoDB and RabbitMQ are running
-2. Verify connection URIs if using non-default configurations
-3. Enable debug mode with `--debug` for more detailed output
-4. Check log files for MongoDB and RabbitMQ for service-specific errors

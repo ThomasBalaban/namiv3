@@ -7,7 +7,7 @@ from .desktop_speech_music_classifier import SpeechMusicClassifier
 from .desktop_audio_processor import AudioProcessor
 
 class SpeechMusicTranscriber:
-    def __init__(self, keep_files=False, auto_detect=True, debug_mode=False, transcript_manager=None):
+    def __init__(self, keep_files=False, auto_detect=True, transcript_manager=None):
         from nami.config import FS, MODEL_SIZE, DEVICE, SAVE_DIR
         self.FS = FS
         
@@ -43,7 +43,6 @@ class SpeechMusicTranscriber:
         # Speech/Music classifier
         self.classifier = SpeechMusicClassifier()
         self.auto_detect = auto_detect
-        self.debug_mode = debug_mode
         
         # Transcript Manager for persistent storage
         self.transcript_manager = transcript_manager
@@ -68,11 +67,6 @@ class SpeechMusicTranscriber:
         self.auto_detect = not self.auto_detect
         print(f"Automatic detection: {'ON' if self.auto_detect else 'OFF'}")
 
-    def toggle_debug(self):
-        """Toggle debug mode"""
-        self.debug_mode = not self.debug_mode
-        print(f"Debug mode: {'ON' if self.debug_mode else 'OFF'}")
-        
     def cleanup_files(self):
         """Remove all saved audio files"""
         count = 0
@@ -100,10 +94,7 @@ class SpeechMusicTranscriber:
                         if text.startswith("[Error"):
                             print(f"\n[{timestamp} | {latency:.1f}s] [{audio_type.upper()} {confidence:.2f}] {text}", flush=True)
                         else:
-                            if self.debug_mode:
-                                print(f"\n[{timestamp} | {latency:.1f}s] [{audio_type.upper()} {confidence:.2f}] {text}", flush=True)
-                            else:
-                                print(f"[{timestamp} | {latency:.1f}s] [{audio_type.upper()} {confidence:.2f}] {text}", flush=True)
+                            print(f"[{timestamp} | {latency:.1f}s] [{audio_type.upper()} {confidence:.2f}] {text}", flush=True)
                             
                             # Publish to transcript manager if available
                             if self.transcript_manager:
@@ -117,17 +108,13 @@ class SpeechMusicTranscriber:
                                     text=text,
                                     metadata=metadata
                                 )
-                                
-                    elif self.debug_mode:
-                        print(f"\n[{timestamp} | {latency:.1f}s] [{audio_type.upper()} {confidence:.2f} - NO TEXT]", flush=True)
                     
                     # Delete the file after processing if not keeping files
                     if not self.keep_files and filename and os.path.exists(filename):
                         try:
                             os.remove(filename)
                         except Exception as e:
-                            if self.debug_mode:
-                                print(f"Error removing file: {str(e)}")
+                            print(f"Error removing file: {str(e)}")
                     
                     self.result_queue.task_done()
                 time.sleep(0.05)
@@ -140,12 +127,7 @@ class SpeechMusicTranscriber:
         
         print(f"Model: {MODEL_SIZE.upper()} | Device: {DEVICE.upper()}")
         print(f"Chunk: {CHUNK_DURATION}s with {OVERLAP}s overlap")
-        print(f"Debug mode: {'ON' if self.debug_mode else 'OFF'}")
-
-        # Only print detailed info in debug mode
-        if self.debug_mode:
-            if self.transcript_manager:
-                print(f"Transcript Manager: Connected")
+        print(f"Transcript Manager: Connected")
 
         # Start output worker thread
         output_thread = Thread(target=self.output_worker, daemon=True)
@@ -176,25 +158,16 @@ class SpeechMusicTranscriber:
             if not self.keep_files:
                 self.cleanup_files()
 
-# Add this code to make the module executable
-def main():
-    parser = argparse.ArgumentParser(description="Desktop audio transcription with Whisper")
-    parser.add_argument("--debug", action="store_true", help="Enable debug mode")
-    parser.add_argument("--keep-files", action="store_true", help="Keep audio files after transcription")
-    parser.add_argument("--manual", action="store_true", help="Disable auto-detection of audio type")
-    args = parser.parse_args()
-    
+
+def main():    
     try:
-        transcriber = SpeechMusicTranscriber(
-            keep_files=args.keep_files,
-            auto_detect=not args.manual,
-            debug_mode=args.debug
-        )
+        transcriber = SpeechMusicTranscriber()
         transcriber.run()
     except KeyboardInterrupt:
         print("\nStopped by user")
     except Exception as e:
         print(f"Error: {str(e)}")
+
 
 # This will make the module executable when run directly
 if __name__ == "__main__":

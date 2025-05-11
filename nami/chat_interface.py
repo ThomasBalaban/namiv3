@@ -36,7 +36,7 @@ async def handle_twitch_message(msg):
         if username.lower() == BOTNAME.lower():
             return
         
-        # Log the message for debugging
+        # Log the message
         print(f"Received message from {username}: {user_message}")
         
         # Get the response handler if available

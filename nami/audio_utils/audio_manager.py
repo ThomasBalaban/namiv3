@@ -7,14 +7,10 @@ class TranscriptManager:
     """
     Manages transcription data without long-term storage functionality.
     """
-    def __init__(self, debug=False):
-        self.debug = debug
+    def __init__(self):
         self.recent_transcripts = []
         self.max_recent = 20  # Keep only the 20 most recent transcripts in memory
         
-        if self.debug:
-            print("TranscriptManager initialized (memory-only mode)")
-    
     def publish_transcript(self, source: str, text: str, 
                          timestamp: Optional[str] = None, 
                          metadata: Optional[Dict[str, Any]] = None) -> None:
@@ -48,9 +44,6 @@ class TranscriptManager:
         # Trim to keep only the most recent ones
         if len(self.recent_transcripts) > self.max_recent:
             self.recent_transcripts = self.recent_transcripts[-self.max_recent:]
-            
-        if self.debug:
-            print(f"Processed transcript: {source} - {text[:30]}...")
     
     def get_recent_transcripts(self, limit=10, source=None):
         """
@@ -105,12 +98,6 @@ class TranscriptManager:
         current_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         captures_dir = os.path.join(current_dir, 'audio_captures')
         
-        # Check if directory exists
-        if not os.path.exists(captures_dir):
-            if self.debug:
-                print(f"Audio captures directory not found: {captures_dir}")
-            return
-            
         # Count files for reporting
         file_count = 0
         
@@ -125,16 +112,13 @@ class TranscriptManager:
                 except Exception as e:
                     print(f"Error removing file {file_path}: {str(e)}")
         
-        if self.debug or file_count > 0:
+        if file_count > 0:
             print(f"Cleaned up {file_count} audio files from {captures_dir}")
     
     def close(self):
         """Clean up resources"""
         # Clean up audio files
         self.cleanup_audio_files()
-        
-        if self.debug:
-            print("TranscriptManager closed")
         
         # Clear memory
         self.recent_transcripts = []
