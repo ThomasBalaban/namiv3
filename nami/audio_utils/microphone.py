@@ -4,6 +4,7 @@ import numpy as np
 import sounddevice as sd
 import time
 from contextlib import contextmanager
+from ..config import MICROPHONE_DEVICE_ID
 
 # ---- Set environment variable FIRST ----
 os.environ["VOSK_SILENT"] = "1"  # Critical to set BEFORE importing Vosk
@@ -35,7 +36,6 @@ def suppress_vosk_logs():
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # ---- Rest of Configuration ----
-MICROPHONE_DEVICE_ID = 4
 MODEL_PATH = os.path.join(SCRIPT_DIR, "..", "..", "nami/local_models/vosk-model-en-us-0.22")
 
 print(f"Checking if model exists at: {os.path.abspath(MODEL_PATH)}")
