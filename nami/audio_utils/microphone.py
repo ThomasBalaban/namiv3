@@ -12,6 +12,9 @@ os.environ["VOSK_SILENT"] = "1"  # Critical to set BEFORE importing Vosk
 # Now import Vosk
 from vosk import Model, KaldiRecognizer
 
+# Global variable declaration at the top of the module
+transcript_manager = None
+
 # ---- Suppression Utility (Updated) ----
 @contextmanager
 def suppress_vosk_logs():
@@ -47,9 +50,6 @@ CHANNELS = 4
 ACTIVE_CHANNEL = 1
 BLOCKSIZE = 8000
 
-# Global transcript manager reference
-transcript_manager = None
-
 # Function to initialize vosk model
 def initialize_vosk(debug_mode=False):
     print("Initializing Vosk...")
@@ -63,8 +63,13 @@ def initialize_vosk(debug_mode=False):
 def create_audio_callback(recognizer, debug_mode=False):
     """Create a callback function for the audio stream"""
     
+    # Determine if this module is being run directly
+    is_standalone = __name__ == "__main__"
+    
     def audio_callback(indata, frames, time_info, status):
         """Process audio from microphone"""
+        global transcript_manager
+        
         try:
             # If in debug mode, print status information
             if debug_mode and status:
@@ -91,11 +96,11 @@ def create_audio_callback(recognizer, debug_mode=False):
                     # Get current timestamp from system time (not from callback's time_info)
                     timestamp = time.strftime("%H:%M:%S")
                     
-                    # Print with expected format for main.py to detect
-                    print(f"[Microphone Input] {text}")
+                    # Print directly if standalone or transcript manager is not available
+                    if is_standalone or not transcript_manager:
+                        print(f"[Microphone Input] {text}")
                     
                     # Publish to transcript manager if available
-                    global transcript_manager
                     if transcript_manager:
                         metadata = {
                             "device_id": MICROPHONE_DEVICE_ID,
@@ -160,6 +165,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
     
     try:
+        # When running as main script, transcript_manager is None
         transcribe_microphone(debug_mode=args.debug)
     except KeyboardInterrupt:
         print("\nStopped listening")

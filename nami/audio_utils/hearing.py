@@ -21,6 +21,7 @@ def process_transcript(message):
     # Format the output differently based on source
     if source.lower() == "microphone":
         # Format for microphone - this is what main.py is looking for
+        # Only print here if not being printed by microphone.py directly
         print(f"[Microphone Input] {text}")
     elif source.lower() in ["desktop", "speech", "music"]:
         # Format for desktop audio - main.py expects this format
