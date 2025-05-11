@@ -5,8 +5,8 @@ priority_system = None
 input_funnel = None
 
 # Feature flags
-ENABLE_DESKTOP_AUDIO = False  # Set to False to disable desktop audio prompts
-ENABLE_VISION = False         # Set to False to disable vision prompts
+ENABLE_DESKTOP_AUDIO = False  
+ENABLE_VISION = False
 
 def set_priority_system(ps):
     """Set the global priority system reference"""
@@ -18,7 +18,7 @@ def set_input_funnel(funnel):
     global input_funnel
     input_funnel = funnel
 
-def set_feature_flags(desktop_audio=False, vision=False):
+def set_feature_flags(desktop_audio=True, vision=True):
     """Enable or disable specific input sources"""
     global ENABLE_DESKTOP_AUDIO, ENABLE_VISION
     ENABLE_DESKTOP_AUDIO = desktop_audio
@@ -33,11 +33,6 @@ async def handle_twitch_message(msg, botname="peepingnami"):
     
     # Skip bot's own messages
     if msg.user.name.lower() == botname.lower():
-        return
-        
-    # Skip system messages about bot joining
-    if "Bot is ready for work" in msg.text or "joining channels" in msg.text:
-        print(f"Skipping system Twitch message: {msg.text}")
         return
         
     # Extract the message content and sender
@@ -71,7 +66,6 @@ async def handle_twitch_message(msg, botname="peepingnami"):
                 'use_tts': False  # Don't use TTS for Twitch responses
             }
         )
-        print(f"Twitch mention from {username} sent directly to funnel")
     elif priority_system:
         # Add to priority system with appropriate source
         if is_mention:
@@ -96,17 +90,8 @@ def handle_microphone_input(transcription, confidence=0.7):
     if not transcription or len(transcription) < 2:
         return
 
-    if confidence < 0.4:
-        return  # Skip low confidence transcriptions
-    
     # Determine if this is direct speech by checking for bot name
     is_direct = 'nami' in transcription.lower() or 'peepingnami' in transcription.lower()
-    
-    # Skip system-related transcriptions
-    if any(keyword in transcription.lower() for keyword in 
-          ["loading", "initializing", "startup", "started", "test", "vision system"]):
-        print(f"Skipping system-related transcription: {transcription}")
-        return
     
     # Create metadata
     metadata = {
@@ -133,7 +118,6 @@ def handle_microphone_input(transcription, confidence=0.7):
                 'use_tts': True  # Enable TTS for direct microphone
             }
         )
-        print(f"Direct microphone input sent straight to funnel: {transcription[:50]}...")
     elif priority_system:
         # Add to priority system with appropriate source
         if is_direct:
@@ -142,9 +126,6 @@ def handle_microphone_input(transcription, confidence=0.7):
                 transcription,
                 metadata
             )
-        else:
-            # For indirect microphone inputs, we still log them but don't send to priority system
-            print(f"Indirect microphone input (not sent to bot): {transcription[:50]}...")
 
 def handle_desktop_audio_input(transcription, audio_type, confidence):
     """Process input specifically from desktop audio"""
@@ -156,19 +137,9 @@ def handle_desktop_audio_input(transcription, audio_type, confidence):
         
     # If desktop audio processing is disabled, just log it
     if not ENABLE_DESKTOP_AUDIO:
-        print(f"Desktop audio (disabled): [{audio_type}] {transcription[:50]}...")
         return
     
     if priority_system is None:
-        return
-        
-    if confidence < 0.4:
-        return  # Skip low confidence transcriptions
-    
-    # Skip system-related transcriptions
-    if any(keyword in transcription.lower() for keyword in 
-          ["loading", "initializing", "startup", "started", "test", "vision system"]):
-        print(f"Skipping system-related desktop audio: {transcription}")
         return
     
     # Create metadata
@@ -181,7 +152,6 @@ def handle_desktop_audio_input(transcription, audio_type, confidence):
     }
     
     # Desktop audio always goes to ambient audio via priority system
-    # We don't send this directly to the funnel as it's lower priority
     priority_system.add_input(
         InputSource.AMBIENT_AUDIO, 
         transcription,
@@ -195,7 +165,7 @@ def process_hearing_line(line):
         return
 
     # Parse the line to extract information
-    confidence = 0.0
+    confidence = 0.7  # Default confidence
     source_type = "UNKNOWN"
     transcription = ""
     
@@ -218,7 +188,7 @@ def process_hearing_line(line):
                 try:
                     confidence = float(parts[1].split("]")[0].strip())
                 except:
-                    confidence = 0.5  # Default if parsing fails
+                    confidence = 0.7  # Default if parsing fails
         elif "MUSIC" in line:
             source_type = "MUSIC"
             parts = line.split("MUSIC")
@@ -226,7 +196,7 @@ def process_hearing_line(line):
                 try:
                     confidence = float(parts[1].split("]")[0].strip())
                 except:
-                    confidence = 0.5  # Default if parsing fails
+                    confidence = 0.7  # Default if parsing fails
         
         # Extract the transcription text
         parts = line.split("]")
@@ -242,16 +212,12 @@ def handle_vision_input(analysis_text, confidence, metadata=None):
     """Process input from the vision system"""
     global priority_system, input_funnel, ENABLE_VISION
     
-    # If vision processing is disabled, just log it
+    # If vision processing is disabled, just return
     if not ENABLE_VISION:
-        is_summary = metadata.get('type') == 'summary' if metadata else False
-        print(f"Vision input (disabled): [{is_summary and 'SUMMARY' or 'ANALYSIS'}] {analysis_text[:50]}...")
         return
     
-    # Skip system-related and startup messages
-    if any(keyword in analysis_text.lower() for keyword in 
-          ["loading", "initializing", "startup", "started", "test", "vision system", "model"]):
-        print(f"Skipping system-related vision input: {analysis_text[:50]}...")
+    # Skip empty text
+    if not analysis_text or len(analysis_text) < 2:
         return
     
     # For summaries, we always want to process them (they're important)
@@ -292,7 +258,6 @@ def handle_vision_input(analysis_text, confidence, metadata=None):
                 'use_tts': False
             }
         )
-        print(f"Vision input sent directly to funnel: {analysis_text[:50]}...")
     elif priority_system:
         # Otherwise use the priority system
         priority_system.add_input(
@@ -301,35 +266,8 @@ def handle_vision_input(analysis_text, confidence, metadata=None):
             metadata
         )
 
-def process_vision_queue_item(item):
-    """Process an item from the vision queue"""
-    if not item:
-        return
-        
-    # Extract standard fields from queue item
-    source = item.get('source', 'VISUAL_CHANGE')
-    text = item.get('text', '')
-    score = item.get('score', 0.7)
-    metadata = item.get('metadata', {})
-    item_type = item.get('type', 'analysis')
-    
-    # Skip empty text or error messages
-    if not text.strip() or item_type == 'error':
-        return
-    
-    # Skip system-related and startup message
-    if any(keyword in text.lower() for keyword in 
-          ["loading", "initializing", "startup", "started", "test", "vision system", "model"]):
-        print(f"Skipping system-related vision queue item: {text[:50]}...")
-        return
-        
-    # Pass to the handle_vision_input function with full metadata
-    metadata['type'] = item_type  # Ensure type is in metadata
-    handle_vision_input(text, score, metadata)
-
-# Legacy line processor for console output compatibility
 def process_vision_line(line):
-    """Process a line of output from the vision system (legacy method)"""
+    """Process a line of output from the vision system"""
     # Skip empty lines
     if not line.strip():
         return
@@ -380,16 +318,14 @@ def process_vision_line(line):
     handle_vision_input(analysis_text, confidence, metadata)
 
 # ====== CONSOLE INPUT HANDLER ======
-
 def handle_console_input(text):
     """Process direct console input"""
     global priority_system, input_funnel
     
-    # Skip test commands
-    if "test" in text.lower() and "bot_core" in text.lower():
-        print(f"Skipping test command: {text}")
+    # Skip empty text
+    if not text.strip():
         return
-        
+    
     # Check for feature flag commands
     if text.lower() == "enable vision":
         set_feature_flags(ENABLE_DESKTOP_AUDIO, True)
@@ -430,7 +366,6 @@ def handle_console_input(text):
                 'use_tts': False  # Don't use TTS for console by default
             }
         )
-        print(f"Console input sent directly to funnel: {text[:50]}...")
     elif priority_system:
         # Otherwise use priority system
         priority_system.add_input(

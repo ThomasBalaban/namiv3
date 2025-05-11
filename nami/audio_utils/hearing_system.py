@@ -39,8 +39,6 @@ def start_hearing_system(debug_mode=False, output_reader=None):
     
     # Use the module's file path directly
     cmd = [sys.executable, hearing.__file__]
-    if debug_mode:
-        cmd.append("--debug")
     
     try:
         # Start the process without specifying bufsize to avoid the warning

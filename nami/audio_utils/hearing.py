@@ -1,4 +1,3 @@
-import argparse
 import threading
 import os
 import time
@@ -16,12 +15,10 @@ def process_transcript(message):
     """
     source = message.get("source", "unknown")
     text = message.get("text", "")
-    timestamp = message.get("timestamp", "")
     
     # Format the output differently based on source
     if source.lower() == "microphone":
         # Format for microphone - this is what main.py is looking for
-        # Only print here if not being printed by microphone.py directly
         print(f"[Microphone Input] {text}")
     elif source.lower() in ["desktop", "speech", "music"]:
         # Format for desktop audio - main.py expects this format
@@ -30,7 +27,7 @@ def process_transcript(message):
         print(f"[{source_type} {confidence:.2f}] {text}")
     else:
         # Fallback format for other sources
-        print(f"AI RECEIVED: [{timestamp}] ({source}) {text}")
+        print(f"AI RECEIVED: ({source}) {text}")
 
 def setup_signal_handlers(transcript_manager):
     """Set up signal handlers for graceful shutdown"""
@@ -51,22 +48,7 @@ def main():
     # Initialize transcript manager
     transcript_manager = None
     
-    
     try:
-        print(f"Initializing transcript manager with message queue only...")
-        transcript_manager = TranscriptManager()
-        
-        # Start a consumer to process messages from the queue
-        transcript_manager.start_consumer(process_transcript)
-        print(f"Transcript manager ready.")
-        
-        # Set up signal handlers for graceful shutdown
-        setup_signal_handlers(transcript_manager)
-    except Exception as e:
-        print(f"Error initializing transcript manager: {e}")
-        print(f"Running without messaging.")
-        
-        # Fall back to memory-only manager
         transcript_manager = TranscriptManager()
         
         # Set up direct processing
@@ -83,11 +65,20 @@ def main():
             })
         transcript_manager.publish_transcript = new_publish
             
-    # Start the Vosk microphone transcription in a separate thread
+        # Set up signal handlers for graceful shutdown
+        setup_signal_handlers(transcript_manager)
+    except Exception as e:
+        print(f"Error initializing transcript manager: {e}")
+        print(f"Running without messaging.")
+        
+        # Fall back to memory-only manager
+        transcript_manager = TranscriptManager()
+            
+    # Start the microphone transcription in a separate thread
     print("Starting microphone transcription...")
     mic_thread = threading.Thread(
         target=transcribe_microphone,
-        args=(transcript_manager),
+        args=(False, transcript_manager),  # Fix: added comma to make it a tuple
         daemon=True
     )
     mic_thread.start()
@@ -107,9 +98,6 @@ def main():
         if transcript_manager:
             transcript_manager.close()
             
-        # The transcriber will handle its own cleanup
-        # The mic_thread will be terminated when the main thread exits
-        # because it's a daemon thread
         print("Shutdown complete.")
 
 if __name__ == "__main__":
