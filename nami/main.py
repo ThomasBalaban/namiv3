@@ -198,11 +198,9 @@ def main():
     
     # Set the input funnel in the input handlers if we're using it
     if use_funnel:
-        from nami.input_systems.input_handlers import set_input_funnel, set_feature_flags
+        from nami.input_systems.input_handlers import set_input_funnel
         set_input_funnel(input_funnel)
-        
-        # Enable all input sources
-        set_feature_flags(desktop_audio=True, vision=True)
+        print("NOTICE: Desktop audio and vision inputs are DISABLED by default")
     
     # Start the hearing system
     start_hearing_system(

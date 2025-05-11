@@ -1,12 +1,9 @@
 from .priority_core import InputSource
+from ..config import ENABLE_DESKTOP_AUDIO, ENABLE_VISION
 
 # Global references
 priority_system = None
 input_funnel = None
-
-# Feature flags
-ENABLE_DESKTOP_AUDIO = False  
-ENABLE_VISION = False
 
 def set_priority_system(ps):
     """Set the global priority system reference"""
@@ -17,13 +14,6 @@ def set_input_funnel(funnel):
     """Set the global input funnel reference"""
     global input_funnel
     input_funnel = funnel
-
-def set_feature_flags(desktop_audio=True, vision=True):
-    """Enable or disable specific input sources"""
-    global ENABLE_DESKTOP_AUDIO, ENABLE_VISION
-    ENABLE_DESKTOP_AUDIO = desktop_audio
-    ENABLE_VISION = vision
-    print(f"Feature flags updated - Desktop Audio: {desktop_audio}, Vision: {vision}")
 
 # ====== TWITCH CHAT HANDLER ======
 
@@ -324,35 +314,6 @@ def handle_console_input(text):
     
     # Skip empty text
     if not text.strip():
-        return
-    
-    # Check for feature flag commands
-    if text.lower() == "enable vision":
-        set_feature_flags(ENABLE_DESKTOP_AUDIO, True)
-        print("Vision inputs enabled")
-        return
-    elif text.lower() == "disable vision":
-        set_feature_flags(ENABLE_DESKTOP_AUDIO, False)
-        print("Vision inputs disabled")
-        return
-    elif text.lower() == "enable desktop audio":
-        set_feature_flags(True, ENABLE_VISION)
-        print("Desktop audio inputs enabled")
-        return
-    elif text.lower() == "disable desktop audio":
-        set_feature_flags(False, ENABLE_VISION)
-        print("Desktop audio inputs disabled")
-        return
-    elif text.lower() == "enable all inputs":
-        set_feature_flags(True, True)
-        print("All input sources enabled")
-        return
-    elif text.lower() == "disable all inputs":
-        set_feature_flags(False, False)
-        print("All input sources disabled (except microphone)")
-        return
-    elif text.lower() == "status inputs":
-        print(f"Input Status - Desktop Audio: {ENABLE_DESKTOP_AUDIO}, Vision: {ENABLE_VISION}")
         return
     
     # If funnel is available, send directly to it with highest priority
