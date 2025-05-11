@@ -5,7 +5,7 @@ import time
 import signal
 import sys
 import atexit
-from nami.audio_utils.transcriber import SpeechMusicTranscriber
+from nami.audio_utils.desktop_transcriber import SpeechMusicTranscriber
 from nami.audio_utils.microphone import transcribe_microphone
 from nami.audio_utils.audio_manager import TranscriptManager
 
