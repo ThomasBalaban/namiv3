@@ -1,67 +1,54 @@
-# nami/audio_utils/hearing_system.py
-
 import sys
 import threading
 import subprocess
 import atexit
-
-# Import the hearing module from the package structure
 from nami.audio_utils import hearing
+from nami.ui import emit_audio_context
 
 # Global variables
 hearing_process = None
 
-def hearing_output_reader(process):
-    """Read and format output from the hearing.py process"""
+def _output_reader_thread(process, callback):
+    """
+    Internal thread function to read subprocess output and invoke a callback.
+    """
     for line in iter(process.stdout.readline, b''):
-        # Decode the line
         line_str = line.decode('utf-8').rstrip()
+        
+        # Send audio context to UI
+        if line_str:
+            emit_audio_context(line_str)
+        
+        # Pass the line to the processing function in main.py
+        if callback:
+            try:
+                callback(line_str)
+            except Exception as e:
+                print(f"Error in hearing system callback: {e}")
 
-        # Check if it's a transcription line
-        if ("[Microphone Input]" in line_str or
-            ("]" in line_str and any(x in line_str for x in ["SPEECH", "MUSIC"]))):
-
-            # Format based on source
-            if "[Microphone Input]" in line_str:
-                formatted = line_str.replace("[Microphone Input]", "[HEARING] 🎤")
-            else:
-                formatted = line_str.replace("[", "[HEARING] 🔊 [", 1)
-
-            # Print formatted transcript with clear separation
-            print(f"\n{formatted}")
-            print("You: ", end="", flush=True)
-
-        # Print other important output lines (like startup messages)
-        elif any(x in line_str for x in ["Loading", "Starting", "Initializing", "Error", "Vosk"]):
-            print(f"[Hearing] {line_str}")
-
-def start_hearing_system(debug_mode=False, output_reader=None):
-    """Start the hearing.py script as a subprocess"""
+def start_hearing_system(callback=None):
+    """
+    Start the hearing.py script as a subprocess and process its output
+    with a provided callback function.
+    """
     global hearing_process
-
-    # Use the module's file path directly
     cmd = [sys.executable, hearing.__file__]
 
     try:
-        # Start the process
         hearing_process = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             universal_newlines=False,
-            bufsize=0  # No buffering to avoid truncation
+            bufsize=0
         )
 
-        # Register cleanup function to terminate the process on exit
         atexit.register(lambda: hearing_process.terminate() if hearing_process else None)
 
-        # Use custom output reader if provided, otherwise use default
-        reader_func = output_reader if output_reader else hearing_output_reader
-
-        # Start thread to read its output
+        # Start the thread that reads output and calls our new processor
         output_thread = threading.Thread(
-            target=reader_func,
-            args=(hearing_process,),
+            target=_output_reader_thread,
+            args=(hearing_process, callback),
             daemon=True
         )
         output_thread.start()
@@ -77,6 +64,7 @@ def stop_hearing_system():
     global hearing_process
     if hearing_process:
         print("Sending stop signal to hearing system...")
-        hearing_process.terminate() # Send the signal and move on
+        hearing_process.terminate()
         hearing_process = None
         print("Hearing system stop signal sent.")
+

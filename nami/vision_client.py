@@ -1,14 +1,14 @@
-# nami/vision_client.py
 import asyncio
 import websockets
 import json
 import threading
 from nami.input_systems.input_handlers import handle_vision_input
+# --- ADDED: Import UI emitter ---
+from nami.ui.server import emit_vision_context
 
 VISION_WEBSOCKET_URL = "ws://localhost:8001"
 
 async def vision_client_listener():
-    """Connects to the vision WebSocket and processes incoming messages."""
     while True:
         try:
             async with websockets.connect(VISION_WEBSOCKET_URL) as websocket:
@@ -16,16 +16,14 @@ async def vision_client_listener():
                 while True:
                     message_str = await websocket.recv()
                     try:
-                        # Assuming the WebSocket sends JSON data
                         data = json.loads(message_str)
-                        
-                        # Extract data - adjust keys if the format is different
                         analysis_text = data.get("text", "")
                         confidence = data.get("confidence", 0.7)
                         metadata = data.get("metadata", {})
                         
                         if analysis_text:
-                            # Use the existing handler to process the vision input
+                            # --- ADDED: Send context to UI ---
+                            emit_vision_context(analysis_text)
                             handle_vision_input(analysis_text, confidence, metadata)
                             
                     except json.JSONDecodeError:
@@ -41,11 +39,9 @@ async def vision_client_listener():
             await asyncio.sleep(5)
 
 def run_vision_client():
-    """Runs the async listener in a new event loop."""
     asyncio.run(vision_client_listener())
 
 def start_vision_client():
-    """Starts the vision client in a background thread."""
     print("Starting WebSocket vision client...")
     client_thread = threading.Thread(target=run_vision_client, daemon=True)
     client_thread.start()
