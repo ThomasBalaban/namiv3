@@ -1,12 +1,11 @@
 # nami/main.py
 
-import signal
 import threading
 import os
 from nami.bot_core import ask_question, BOTNAME
 from nami.audio_utils.hearing_system import start_hearing_system, stop_hearing_system
 from nami.vision_client import start_vision_client
-from nami.twitch_integration import init_twitch_bot, send_to_twitch_sync  # UPDATED IMPORT
+from nami.twitch_integration import init_twitch_bot, send_to_twitch_sync
 from nami.input_systems import (
     init_priority_system,
     shutdown_priority_system,
@@ -32,20 +31,6 @@ except ImportError:
 
 # Global references for clean shutdown
 global_input_funnel = None
-
-def signal_handler(sig, frame):
-    """Handle clean shutdown on Ctrl+C"""
-    print("\nShutting down...")
-    try:
-        if global_input_funnel:
-            global_input_funnel.stop()
-        stop_hearing_system()
-        shutdown_priority_system()
-        # Force exit after a delay if something hangs
-        threading.Timer(2.0, lambda: os._exit(0)).start()
-    except Exception as e:
-        print(f"Error during shutdown: {e}")
-        os._exit(0)
 
 class PriorityHearingOutputReader:
     """Reading and processing hearing output with priority system"""
@@ -114,18 +99,13 @@ def console_input_loop():
             command = input("You: ")
             if process_console_command(command):
                 break
-        except KeyboardInterrupt:
-            print("\nExiting...")
-            break
         except Exception as e:
-            print(f"Error: {e}")
+            print(f"Error in console loop: {e}")
+            break # Exit loop on error
 
 def main():
     """Start the bot with integrated priority system."""
     global global_input_funnel
-
-    # Set up signal handler for graceful shutdown
-    signal.signal(signal.SIGINT, signal_handler)
 
     # Use the input funnel
     use_funnel = input_funnel_available
@@ -136,20 +116,14 @@ def main():
 
     if use_funnel:
         print("Initializing input funnel...")
-
-        # Create the funnel response handler
         funnel_response_handler = FunnelResponseHandler(
             tts_function=speak_text if tts_available else None
         )
-
-        # Create the input funnel with appropriate callback
         input_funnel = InputFunnel(
             bot_callback=ask_question,
             response_handler=funnel_response_handler.handle_response,
             min_prompt_interval=2.0
         )
-
-        # Store the reference globally for clean shutdown
         global_input_funnel = input_funnel
 
     # Initialize priority system with input funnel
@@ -160,31 +134,27 @@ def main():
         funnel_instance=input_funnel if use_funnel else None
     )
 
-    # Set the input funnel in the input handlers if we're using it
     if use_funnel:
         from nami.input_systems.input_handlers import set_input_funnel
         set_input_funnel(input_funnel)
         print("NOTICE: Desktop audio and vision inputs are DISABLED by default")
 
-    # Start the hearing system
-    start_hearing_system(
-        debug_mode=False,
-        output_reader=PriorityHearingOutputReader()
-    )
-
-    # Start the new WebSocket vision client
+    # Start system components
+    start_hearing_system(debug_mode=False, output_reader=PriorityHearingOutputReader())
     start_vision_client()
 
+    # --- UPDATED SECTION ---
     # Start the Twitch chat bot
     if use_funnel:
-        # When using funnel, the funnel handles Twitch responses
-        init_twitch_bot()
+        # When using funnel, pass the funnel instance to the twitch initializer
+        init_twitch_bot(funnel=input_funnel)
     else:
         # With traditional approach, pass the response handler
         from nami.input_systems.response_handler import ResponseHandler
         response_handler = ResponseHandler(bot_name=BOTNAME)
         response_handler.set_llm_callback(ask_question)
         init_twitch_bot(handler=response_handler)
+    # --- END UPDATED SECTION ---
 
     print("System initialization complete, ready for input")
 
@@ -192,14 +162,16 @@ def main():
         # Start the main console interaction loop
         console_input_loop()
     except KeyboardInterrupt:
-        print("\nShutting down...")
+        # This will now correctly catch Ctrl+C and begin shutdown
+        print("\nCtrl+C detected. Shutting down gracefully...")
     finally:
-        # Clean up resources
+        # This block will run after the loop exits, either normally or via Ctrl+C
+        print("Cleaning up resources...")
         if global_input_funnel:
             global_input_funnel.stop()
         stop_hearing_system()
         shutdown_priority_system()
-        print("Shutdown complete")
+        print("Shutdown complete.")
 
 if __name__ == "__main__":
     main()
