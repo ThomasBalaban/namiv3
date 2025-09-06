@@ -11,6 +11,7 @@ BOTNAME = "peepingnami"
 
 CONTEXT_TIME_WINDOW_SECONDS = 30
 latest_vision_context = []
+latest_spoken_word_context = []
 latest_audio_context = []
 latest_twitch_chat_context = []
 # --- MODIFIED: Increased Twitch context length ---
@@ -39,6 +40,14 @@ def update_vision_context(text: str):
         latest_vision_context.append((now, text))
         latest_vision_context = [(ts, txt) for ts, txt in latest_vision_context if now - ts <= CONTEXT_TIME_WINDOW_SECONDS]
 
+def update_spoken_word_context(text: str):
+    """Thread-safely updates spoken word context, keeping entries within the time window."""
+    global latest_spoken_word_context
+    with context_lock:
+        now = time.time()
+        latest_spoken_word_context.append((now, text))
+        latest_spoken_word_context = [(ts, txt) for ts, txt in latest_spoken_word_context if now - ts <= CONTEXT_TIME_WINDOW_SECONDS]
+
 def update_audio_context(text: str):
     """Thread-safely updates audio context, keeping entries within the time window."""
     global latest_audio_context
@@ -61,7 +70,7 @@ def add_message(role, content):
 
 def ask_question(question):
     """Send a question to the Ollama API and return the bot's response."""
-    global conversation_history, latest_vision_context, latest_audio_context, latest_twitch_chat_context
+    global conversation_history, latest_vision_context, latest_spoken_word_context, latest_audio_context, latest_twitch_chat_context
 
     add_message("user", question)
 
@@ -71,6 +80,11 @@ def ask_question(question):
             if latest_vision_context:
                 vision_texts = [text for timestamp, text in latest_vision_context]
                 vision_summary = "\n".join(vision_texts)
+
+            spoken_word_summary = "You haven't heard anyone speak recently."
+            if latest_spoken_word_context:
+                spoken_word_texts = [text for timestamp, text in latest_spoken_word_context]
+                spoken_word_summary = "\n".join(spoken_word_texts)
 
             audio_summary = "You haven't heard anything recently."
             if latest_audio_context:
@@ -84,6 +98,7 @@ def ask_question(question):
             context_prompt = (
                 f"SYSTEM: This is your internal monologue. Use it to inform your answer based on recent events.\n"
                 f"--- What you've recently seen (last {CONTEXT_TIME_WINDOW_SECONDS}s) ---\n{vision_summary}\n\n"
+                f"--- What you've recently heard spoken (last {CONTEXT_TIME_WINDOW_SECONDS}s) ---\n{spoken_word_summary}\n\n"
                 f"--- What you've recently heard (last {CONTEXT_TIME_WINDOW_SECONDS}s) ---\n{audio_summary}\n\n"
                 f"--- Recent messages in Twitch chat ---\n{twitch_chat_summary}\n"
                 f"--- END OF CONTEXT ---\n"

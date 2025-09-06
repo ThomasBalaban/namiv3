@@ -15,11 +15,7 @@ def _output_reader_thread(process, callback):
     for line in iter(process.stdout.readline, b''):
         line_str = line.decode('utf-8').rstrip()
         
-        # Send audio context to UI
-        if line_str:
-            emit_audio_context(line_str)
-        
-        # Pass the line to the processing function in main.py
+        # Pass the line to the processing function in main.py for routing
         if callback:
             try:
                 callback(line_str)
@@ -67,4 +63,3 @@ def stop_hearing_system():
         hearing_process.terminate()
         hearing_process = None
         print("Hearing system stop signal sent.")
-

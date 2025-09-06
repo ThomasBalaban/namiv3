@@ -39,7 +39,9 @@ class SpeechMusicClassifier:
         )
         
         # Calculate spectral properties
-        spectral_centroid = np.sum(frequencies[:, np.newaxis] * spectrogram, axis=0) / np.sum(spectrogram, axis=0)
+        # --- FIX: Added a small epsilon (1e-10) to prevent division by zero on silent audio chunks ---
+        denominator = np.sum(spectrogram, axis=0) + 1e-10
+        spectral_centroid = np.sum(frequencies[:, np.newaxis] * spectrogram, axis=0) / denominator
         features["mean_spectral_centroid"] = np.mean(spectral_centroid)
         
         # 3. Zero-crossing rate
@@ -63,13 +65,20 @@ class SpeechMusicClassifier:
         # Calculate beat regularity (standard deviation of inter-onset intervals)
         if len(peak_indices) > 1:
             inter_onset_intervals = np.diff(peak_indices)
-            features["beat_regularity"] = np.std(inter_onset_intervals) / np.mean(inter_onset_intervals)
+            mean_interval = np.mean(inter_onset_intervals)
+            # --- FIX: Add a check for mean_interval being zero ---
+            if mean_interval > 0:
+                features["beat_regularity"] = np.std(inter_onset_intervals) / mean_interval
+            else:
+                features["beat_regularity"] = 1.0
         else:
             features["beat_regularity"] = 1.0  # No clear beats
         
         # 5. Spectral flatness (music tends to have lower flatness)
         log_power_spectrum = np.log(np.mean(spectrogram, axis=1) + 1e-10)
-        features["spectral_flatness"] = np.exp(np.mean(log_power_spectrum)) / np.mean(np.exp(log_power_spectrum))
+        # --- FIX: Added epsilon here as well for safety ---
+        mean_exp_spectrum = np.mean(np.exp(log_power_spectrum)) + 1e-10
+        features["spectral_flatness"] = np.exp(np.mean(log_power_spectrum)) / mean_exp_spectrum
         
         # 6. Spectral contrast (dynamic range in each frequency band)
         # Simplification: measure variance across time for each frequency band

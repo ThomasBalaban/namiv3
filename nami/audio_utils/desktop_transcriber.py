@@ -5,6 +5,7 @@ from threading import Thread, Event
 from queue import Queue
 from .desktop_speech_music_classifier import SpeechMusicClassifier
 from .desktop_audio_processor import AudioProcessor
+from faster_whisper import WhisperModel
 
 class SpeechMusicTranscriber:
     def __init__(self, keep_files=False, auto_detect=True, transcript_manager=None):
@@ -13,20 +14,12 @@ class SpeechMusicTranscriber:
         
         os.makedirs(SAVE_DIR, exist_ok=True)
         
-        print(f"Loading Whisper model: {MODEL_SIZE} on {DEVICE}")
-        try:            
-            import whisper
-            self.model = whisper.load_model(MODEL_SIZE)
-            
-            # Move model to specified device if needed
-            if DEVICE == "cuda" and hasattr(self.model, "to"):
-                self.model = self.model.to(DEVICE)
-                # For CUDA devices, we can use half precision
-                self.model = self.model.half()
-                
+        print(f"Loading Faster Whisper model: {MODEL_SIZE} on {DEVICE}")
+        try:
+            # Use WhisperModel from faster_whisper
+            self.model = WhisperModel(MODEL_SIZE, device=DEVICE, compute_type="int8")
         except Exception as e:
             print(f"Error loading model: {e}")
-            print(f"Detailed error information to help fix the issue:")
             import traceback
             traceback.print_exc()
             raise

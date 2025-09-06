@@ -14,6 +14,8 @@ from nami.input_systems import (
 from nami.ui import start_ui_server, emit_log, emit_bot_reply
 
 # --- UI Log Redirection ---
+_is_logging = threading.local()
+
 class LogRedirector:
     """Redirects stdout/stderr to the UI log panel."""
     def __init__(self, original_stream, level):
@@ -21,8 +23,20 @@ class LogRedirector:
         self.level = level
 
     def write(self, message):
-        self.original_stream.write(message)
-        emit_log(self.level, message.strip())
+        # Prevent recursion if a print is called within the logging system itself
+        if getattr(_is_logging, 'active', False):
+            self.original_stream.write(message)
+            return
+
+        try:
+            _is_logging.active = True
+            self.original_stream.write(message)
+            # Only emit non-empty messages to the UI to avoid clutter
+            if message.strip():
+                emit_log(self.level, message.strip())
+        finally:
+            # Ensure the flag is always reset
+            _is_logging.active = False
 
     def flush(self):
         self.original_stream.flush()

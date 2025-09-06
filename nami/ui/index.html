@@ -48,8 +48,14 @@
                         <pre class="context-box" id="vision-context">Waiting for vision data...</pre>
                     </div>
                 </div>
+                <div id="spoken-word-panel" class="panel flex-1 min-h-0">
+                    <h2 class="panel-title">🎤 Spoken Word (Last 30s)</h2>
+                    <div class="panel-content">
+                        <pre class="context-box" id="spoken-word-context">Waiting for spoken word data...</pre>
+                    </div>
+                </div>
                 <div id="audio-panel" class="panel flex-1 min-h-0">
-                    <h2 class="panel-title">🔊 Audio Context (Last 30s)</h2>
+                    <h2 class="panel-title">🔊 Desktop Audio (Last 30s)</h2>
                      <div class="panel-content">
                         <pre class="context-box" id="audio-context">Waiting for audio data...</pre>
                     </div>
@@ -78,6 +84,7 @@
         const socket = io("http://localhost:8002");
 
         const visionContext = document.getElementById('vision-context');
+        const spokenWordContext = document.getElementById('spoken-word-context');
         const audioContext = document.getElementById('audio-context');
         const twitchMessages = document.getElementById('twitch-messages');
         const namiReplies = document.getElementById('nami-replies');
@@ -88,6 +95,7 @@
         // --- MODIFIED: Increased UI display limit ---
         const MAX_TWITCH_CONTEXT_LINES = 20;
         const visionLog = [];
+        const spokenWordLog = [];
         const audioLog = [];
         const MAX_AMBIENT_LOG_LINES = 20;
 
@@ -133,6 +141,10 @@
 
         socket.on('vision_context', (data) => {
             updateAmbientLog(visionContext, visionLog, data.context);
+        });
+        
+        socket.on('spoken_word_context', (data) => {
+            updateAmbientLog(spokenWordContext, spokenWordLog, data.context);
         });
 
         socket.on('audio_context', (data) => {

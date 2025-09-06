@@ -1,5 +1,6 @@
 from .priority_core import InputSource
 from ..config import ENABLE_DESKTOP_AUDIO, ENABLE_VISION
+from ..ui import emit_spoken_word_context, emit_audio_context
 
 # Global references
 priority_system = None
@@ -72,6 +73,9 @@ def handle_microphone_input(transcription, confidence=0.7):
     if not transcription or len(transcription) < 2:
         return
 
+    # --- Route to the correct UI panel ---
+    emit_spoken_word_context(transcription)
+    
     is_direct = 'nami' in transcription.lower() or 'peepingnami' in transcription.lower()
     
     metadata = {
@@ -109,6 +113,9 @@ def handle_desktop_audio_input(transcription, audio_type, confidence):
     
     if not transcription or len(transcription) < 2:
         return
+    
+    # --- Route to the correct UI panel ---
+    emit_audio_context(f"[{audio_type.upper()}] {transcription}")
         
     if not ENABLE_DESKTOP_AUDIO:
         return

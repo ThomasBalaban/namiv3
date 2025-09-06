@@ -53,6 +53,10 @@ def emit_vision_context(context):
     """Emit vision context updates from any thread."""
     _emit_threadsafe('vision_context', {'context': context})
 
+def emit_spoken_word_context(context):
+    """Emit spoken word context updates from any thread."""
+    _emit_threadsafe('spoken_word_context', {'context': context})
+
 def emit_audio_context(context):
     """Emit audio context updates from any thread."""
     _emit_threadsafe('audio_context', {'context': context})
@@ -93,4 +97,3 @@ def start_ui_server():
     server_thread = threading.Thread(target=run_server, daemon=True, name="UI Server")
     server_thread.start()
     print("UI server thread started.")
-
