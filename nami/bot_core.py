@@ -9,12 +9,12 @@ from nami.hard_filter import banned_words
 OLLAMA_API_URL = "http://localhost:11434/api/chat"
 BOTNAME = "peepingnami"
 
-# --- MODIFIED: Context now uses a time window for Vision and Audio ---
 CONTEXT_TIME_WINDOW_SECONDS = 30
-latest_vision_context = []  # List of (timestamp, text)
-latest_audio_context = []   # List of (timestamp, text)
+latest_vision_context = []
+latest_audio_context = []
 latest_twitch_chat_context = []
-MAX_TWITCH_CONTEXT_LENGTH = 5
+# --- MODIFIED: Increased Twitch context length ---
+MAX_TWITCH_CONTEXT_LENGTH = 20
 
 # Global state for conversation
 conversation_history = []
@@ -37,7 +37,6 @@ def update_vision_context(text: str):
     with context_lock:
         now = time.time()
         latest_vision_context.append((now, text))
-        # Prune entries older than the time window
         latest_vision_context = [(ts, txt) for ts, txt in latest_vision_context if now - ts <= CONTEXT_TIME_WINDOW_SECONDS]
 
 def update_audio_context(text: str):
@@ -46,7 +45,6 @@ def update_audio_context(text: str):
     with context_lock:
         now = time.time()
         latest_audio_context.append((now, text))
-        # Prune entries older than the time window
         latest_audio_context = [(ts, txt) for ts, txt in latest_audio_context if now - ts <= CONTEXT_TIME_WINDOW_SECONDS]
 
 def censor_text(text):
@@ -69,19 +67,16 @@ def ask_question(question):
 
     try:
         with context_lock:
-            # Format vision context from the list
             vision_summary = "You haven't seen anything recently."
             if latest_vision_context:
                 vision_texts = [text for timestamp, text in latest_vision_context]
                 vision_summary = "\n".join(vision_texts)
 
-            # Format audio context from the list
             audio_summary = "You haven't heard anything recently."
             if latest_audio_context:
                 audio_texts = [text for timestamp, text in latest_audio_context]
                 audio_summary = "\n".join(audio_texts)
             
-            # Format twitch chat
             twitch_chat_summary = "Nothing new in chat."
             if latest_twitch_chat_context:
                 twitch_chat_summary = "\n".join(latest_twitch_chat_context)

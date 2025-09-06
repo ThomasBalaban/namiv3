@@ -19,7 +19,6 @@
         .nami-reply { color: #63e2b7; }
         .context-box { white-space: pre-wrap; word-wrap: break-word; }
         
-        /* --- NEW: Styles for mention highlighting --- */
         .mention-bg {
             background-color: rgba(169, 112, 255, 0.1);
             border-left: 3px solid #a970ff;
@@ -59,7 +58,7 @@
 
             <div class="flex flex-col gap-6 min-h-0">
                 <div id="twitch-panel" class="panel flex-1 min-h-0">
-                    <h2 class="panel-title">💬 Twitch Chat Context (Last 5)</h2>
+                    <h2 class="panel-title">💬 Twitch Chat Context (Last 20)</h2>
                     <div class="panel-content log-list" id="twitch-messages"></div>
                 </div>
                 <div id="nami-panel" class="panel flex-1 min-h-0">
@@ -86,7 +85,8 @@
         
         const MAX_CONSOLE_LINES = 100;
         const twitchChatLog = [];
-        const MAX_TWITCH_CONTEXT_LINES = 5;
+        // --- MODIFIED: Increased UI display limit ---
+        const MAX_TWITCH_CONTEXT_LINES = 20;
         const visionLog = [];
         const audioLog = [];
         const MAX_AMBIENT_LOG_LINES = 20;
@@ -97,11 +97,8 @@
             return temp.innerHTML;
         }
 
-        // --- NEW: Function to highlight mentions in a message ---
         function highlightMentions(message) {
             const sanitizedMessage = sanitizeHTML(message);
-            // Use a regex to find all occurrences of 'nami' or 'peepingnami', case-insensitive (g, i flags)
-            // The '$&' in the replacement string inserts the exact text that was matched, preserving its original casing.
             const regex = /(nami|peepingnami)/gi;
             return sanitizedMessage.replace(regex, '<span class="highlight-word">$&</span>');
         }
@@ -142,7 +139,6 @@
             updateAmbientLog(audioContext, audioLog, data.context);
         });
 
-        // --- MODIFIED: Twitch handler now checks for mentions and applies highlighting ---
         socket.on('twitch_message', (data) => {
             twitchChatLog.push(data);
             if (twitchChatLog.length > MAX_TWITCH_CONTEXT_LINES) {

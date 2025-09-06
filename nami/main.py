@@ -35,20 +35,19 @@ except ImportError:
     input_funnel_available = False
     print("InputFunnel module not found, will use traditional priority system")
 
-# Try to import TTS if available
+# --- MODIFIED: Import TTS components separately ---
 try:
-    from nami.tts_utils.speaker import speak_text
+    from nami.tts_utils.tts_engine import text_to_speech_file
+    from nami.tts_utils.audio_player import play_audio_file
     tts_available = True
 except ImportError:
     tts_available = False
-    speak_text = None
+    text_to_speech_file = None
+    play_audio_file = None
 
 # Global references for clean shutdown
 global_input_funnel = None
 
-
-# --- MODIFIED: Simplified Audio Processor ---
-# This function replaces the old, buggy class. It receives a line of text directly.
 def hearing_line_processor(line_str):
     """Processes a single line of text from the hearing system."""
     if ("[Microphone Input]" in line_str or
@@ -61,8 +60,6 @@ def hearing_line_processor(line_str):
 
         print(f"\n{formatted}")
         print("You: ", end="", flush=True)
-
-        # Process with priority system
         process_hearing_line(line_str)
     elif any(x in line_str for x in ["Loading", "Starting", "Initializing", "Error", "Vosk"]):
         print(f"[Hearing] {line_str}")
@@ -70,8 +67,9 @@ def hearing_line_processor(line_str):
 
 class FunnelResponseHandler:
     """Handler for funnel responses (including TTS and UI updates)"""
-    def __init__(self, tts_function=None):
-        self.tts_function = tts_function
+    def __init__(self, generation_func=None, playback_func=None):
+        self.generation_func = generation_func
+        self.playback_func = playback_func
 
     def handle_response(self, response, source_info):
         if not response:
@@ -81,21 +79,32 @@ class FunnelResponseHandler:
         print(f"\n[BOT] {response}")
         print("You: ", end="", flush=True)
         
-        # --- ADDED: Send reply to UI ---
         emit_bot_reply(response)
 
         try:
             username = source_info.get('username')
-            twitch_response = f"@{username} {response}" if username else response
-            send_to_twitch_sync(twitch_response)
+            if source_info.get('source') == 'TWITCH_MENTION':
+                twitch_response = f"@{username} {response}" if username else response
+                send_to_twitch_sync(twitch_response)
         except Exception as e:
             print(f"[TWITCH] Error sending response: {e}")
 
-        if self.tts_function and source_info.get('use_tts', False):
+        # --- MODIFIED: Separate audio generation and playback ---
+        if self.generation_func and self.playback_func and source_info.get('use_tts', False):
             try:
-                self.tts_function(response)
+                # Step 1: Generate the audio file from text. This is a blocking network call.
+                audio_filename = self.generation_func(response)
+                
+                if audio_filename:
+                    # Step 2: Play the generated file in a non-blocking background thread.
+                    playback_thread = threading.Thread(
+                        target=self.playback_func, 
+                        args=(audio_filename,), 
+                        daemon=True
+                    )
+                    playback_thread.start()
             except Exception as e:
-                print(f"[TTS] Error: {e}")
+                print(f"[TTS] Error processing TTS: {e}")
 
 
 def console_input_loop():
@@ -115,11 +124,9 @@ def main():
     """Start the bot with integrated priority system."""
     global global_input_funnel
 
-    # --- ADDED: Start UI and Redirect Logs ---
     start_ui_server()
     sys.stdout = LogRedirector(sys.stdout, 'INFO')
     sys.stderr = LogRedirector(sys.stderr, 'ERROR')
-    # ---
 
     use_funnel = input_funnel_available
     input_funnel = None
@@ -128,7 +135,8 @@ def main():
     if use_funnel:
         print("Initializing input funnel...")
         funnel_response_handler = FunnelResponseHandler(
-            tts_function=speak_text if tts_available else None
+            generation_func=text_to_speech_file if tts_available else None,
+            playback_func=play_audio_file if tts_available else None
         )
         input_funnel = InputFunnel(
             bot_callback=ask_question,
@@ -149,7 +157,6 @@ def main():
         set_input_funnel(input_funnel)
         print("NOTICE: Desktop audio and vision inputs are DISABLED by default")
 
-    # --- MODIFIED: Pass the simplified processor function as a callback ---
     start_hearing_system(callback=hearing_line_processor)
     start_vision_client()
     init_twitch_bot(funnel=input_funnel)
@@ -171,4 +178,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
