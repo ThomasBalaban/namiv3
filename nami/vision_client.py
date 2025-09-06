@@ -17,7 +17,10 @@ async def vision_client_listener():
                     message_str = await websocket.recv()
                     try:
                         data = json.loads(message_str)
-                        analysis_text = data.get("text", "")
+                        
+                        # --- FIX: Look for the 'content' key instead of 'text' ---
+                        analysis_text = data.get("content", "")
+                        
                         confidence = data.get("confidence", 0.7)
                         metadata = data.get("metadata", {})
                         

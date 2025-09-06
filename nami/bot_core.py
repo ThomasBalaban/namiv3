@@ -1,35 +1,53 @@
 import requests
 import json
 import re
-from threading import Lock # MODIFIED: Correctly import Lock from threading
+import time
+from threading import Lock
 from nami.hard_filter import banned_words
 
 # Constants
 OLLAMA_API_URL = "http://localhost:11434/api/chat"
 BOTNAME = "peepingnami"
 
-# --- NEW: Dedicated Context Storage ---
-# These variables will hold the most recent piece of information from vision and audio.
-# They are kept separate from the main conversation history to avoid pollution.
-latest_vision_context = "You can't see anything right now."
-latest_audio_context = "You can't hear anything right now."
-context_lock = Lock() # MODIFIED: Use the correct Lock object
+# --- MODIFIED: Context now uses a time window for Vision and Audio ---
+CONTEXT_TIME_WINDOW_SECONDS = 30
+latest_vision_context = []  # List of (timestamp, text)
+latest_audio_context = []   # List of (timestamp, text)
+latest_twitch_chat_context = []
+MAX_TWITCH_CONTEXT_LENGTH = 5
 
 # Global state for conversation
 conversation_history = []
-MAX_CONVERSATION_LENGTH = 10
+MAX_CONVERSATION_LENGTH = 30
+
+context_lock = Lock()
+
+def update_twitch_chat_context(username: str, message: str):
+    """Thread-safely updates the latest Twitch chat context."""
+    global latest_twitch_chat_context
+    with context_lock:
+        formatted_message = f"{username}: {message}"
+        latest_twitch_chat_context.append(formatted_message)
+        while len(latest_twitch_chat_context) > MAX_TWITCH_CONTEXT_LENGTH:
+            latest_twitch_chat_context.pop(0)
 
 def update_vision_context(text: str):
-    """Thread-safely updates the latest vision context."""
+    """Thread-safely updates vision context, keeping entries within the time window."""
     global latest_vision_context
     with context_lock:
-        latest_vision_context = text
+        now = time.time()
+        latest_vision_context.append((now, text))
+        # Prune entries older than the time window
+        latest_vision_context = [(ts, txt) for ts, txt in latest_vision_context if now - ts <= CONTEXT_TIME_WINDOW_SECONDS]
 
 def update_audio_context(text: str):
-    """Thread-safely updates the latest audio context."""
+    """Thread-safely updates audio context, keeping entries within the time window."""
     global latest_audio_context
     with context_lock:
-        latest_audio_context = text
+        now = time.time()
+        latest_audio_context.append((now, text))
+        # Prune entries older than the time window
+        latest_audio_context = [(ts, txt) for ts, txt in latest_audio_context if now - ts <= CONTEXT_TIME_WINDOW_SECONDS]
 
 def censor_text(text):
     """Replace banned words with "*filtered*" """
@@ -45,23 +63,38 @@ def add_message(role, content):
 
 def ask_question(question):
     """Send a question to the Ollama API and return the bot's response."""
-    global conversation_history, latest_vision_context, latest_audio_context
+    global conversation_history, latest_vision_context, latest_audio_context, latest_twitch_chat_context
 
     add_message("user", question)
 
     try:
-        # --- MODIFIED: Context Injection ---
-        # Create a temporary, context-aware message history for this specific query.
-        # This ensures the bot is always aware without polluting her main memory.
         with context_lock:
+            # Format vision context from the list
+            vision_summary = "You haven't seen anything recently."
+            if latest_vision_context:
+                vision_texts = [text for timestamp, text in latest_vision_context]
+                vision_summary = "\n".join(vision_texts)
+
+            # Format audio context from the list
+            audio_summary = "You haven't heard anything recently."
+            if latest_audio_context:
+                audio_texts = [text for timestamp, text in latest_audio_context]
+                audio_summary = "\n".join(audio_texts)
+            
+            # Format twitch chat
+            twitch_chat_summary = "Nothing new in chat."
+            if latest_twitch_chat_context:
+                twitch_chat_summary = "\n".join(latest_twitch_chat_context)
+
             context_prompt = (
-                f"SYSTEM: This is your internal monologue. Use it to inform your answer. "
-                f"You are currently seeing: '{latest_vision_context}'. "
-                f"You are currently hearing: '{latest_audio_context}'. "
+                f"SYSTEM: This is your internal monologue. Use it to inform your answer based on recent events.\n"
+                f"--- What you've recently seen (last {CONTEXT_TIME_WINDOW_SECONDS}s) ---\n{vision_summary}\n\n"
+                f"--- What you've recently heard (last {CONTEXT_TIME_WINDOW_SECONDS}s) ---\n{audio_summary}\n\n"
+                f"--- Recent messages in Twitch chat ---\n{twitch_chat_summary}\n"
+                f"--- END OF CONTEXT ---\n"
                 f"Now, respond to the user as peepingnami."
             )
         
-        # Prepend the system context prompt to the current conversation
         messages_with_context = [{"role": "system", "content": context_prompt}] + conversation_history
 
         payload = {
@@ -91,4 +124,3 @@ def ask_question(question):
     except Exception as error:
         print(f"An error occurred: {error}")
         return None
-

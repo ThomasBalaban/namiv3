@@ -10,51 +10,65 @@
         body { background-color: #1a1a1a; color: #e0e0e0; font-family: 'Inter', sans-serif; }
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
         .panel { background-color: #2a2a2a; border: 1px solid #444; border-radius: 0.75rem; display: flex; flex-direction: column; overflow: hidden; }
-        .panel-title { background-color: #3a3a3a; color: #fff; padding: 0.75rem 1.25rem; font-weight: 600; border-bottom: 1px solid #444; }
+        .panel-title { background-color: #3a3a3a; color: #fff; padding: 0.75rem 1.25rem; font-weight: 600; border-bottom: 1px solid #444; flex-shrink: 0; }
         .panel-content { padding: 1.25rem; overflow-y: auto; flex-grow: 1; }
         .log-list { font-family: 'monospace'; font-size: 0.875rem; }
-        .log-list .log-line { padding: 0.25rem 0; border-bottom: 1px solid #333; }
-        .log-list .log-line:last-child { border-bottom: none; }
+        .log-list .log-line { padding: 0.25rem 0.25rem 0.25rem 0.5rem; }
         .log-error { color: #ff8a8a; }
         .twitch-user { color: #a970ff; font-weight: 600; }
         .nami-reply { color: #63e2b7; }
         .context-box { white-space: pre-wrap; word-wrap: break-word; }
+        
+        /* --- NEW: Styles for mention highlighting --- */
+        .mention-bg {
+            background-color: rgba(169, 112, 255, 0.1);
+            border-left: 3px solid #a970ff;
+            border-radius: 4px;
+        }
+        .highlight-word {
+            color: #d8b4fe;
+            font-weight: 600;
+            background-color: rgba(169, 112, 255, 0.2);
+            padding: 1px 4px;
+            border-radius: 4px;
+        }
     </style>
 </head>
-<body class="p-4 md:p-6 lg:p-8">
-    <div class="max-w-screen-2xl mx-auto">
-        <header class="mb-6">
-            <h1 class="text-3xl font-bold text-white">Nami's Brain <span class="text-sm font-medium text-gray-400">| Real-time Monitor</span></h1>
+<body class="h-screen overflow-hidden flex flex-col p-4 md:p-6 lg:p-8">
+    <div class="max-w-screen-2xl mx-auto w-full flex flex-col flex-1 min-h-0">
+        <header class="mb-6 flex-shrink-0">
+            <h1 class="text-3xl font-bold text-white">Nami's Brain <span class="text-sm font-medium text-gray-400">| Real-time Context Monitor</span></h1>
         </header>
 
-        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 h-[calc(100vh-120px)]">
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 flex-1 min-h-0">
             
-            <!-- Left Column -->
-            <div class="flex flex-col gap-6">
-                <div id="vision-panel" class="panel flex-1">
-                    <h2 class="panel-title">👁️ Vision Context</h2>
-                    <div class="panel-content context-box" id="vision-context">Waiting for vision data...</div>
+            <div class="flex flex-col gap-6 min-h-0">
+                <div id="vision-panel" class="panel flex-1 min-h-0">
+                    <h2 class="panel-title">👁️ Vision Context (Last 30s)</h2>
+                    <div class="panel-content">
+                        <pre class="context-box" id="vision-context">Waiting for vision data...</pre>
+                    </div>
                 </div>
-                <div id="audio-panel" class="panel flex-1">
-                    <h2 class="panel-title">🔊 Audio Context</h2>
-                    <div class="panel-content context-box" id="audio-context">Waiting for audio data...</div>
+                <div id="audio-panel" class="panel flex-1 min-h-0">
+                    <h2 class="panel-title">🔊 Audio Context (Last 30s)</h2>
+                     <div class="panel-content">
+                        <pre class="context-box" id="audio-context">Waiting for audio data...</pre>
+                    </div>
                 </div>
             </div>
 
-            <!-- Middle Column -->
-            <div class="flex flex-col gap-6">
-                <div id="twitch-panel" class="panel flex-1">
-                    <h2 class="panel-title">💬 Twitch Chat</h2>
+            <div class="flex flex-col gap-6 min-h-0">
+                <div id="twitch-panel" class="panel flex-1 min-h-0">
+                    <h2 class="panel-title">💬 Twitch Chat Context (Last 5)</h2>
                     <div class="panel-content log-list" id="twitch-messages"></div>
                 </div>
-                <div id="nami-panel" class="panel flex-1">
+                <div id="nami-panel" class="panel flex-1 min-h-0">
                     <h2 class="panel-title">🤖 Nami's Replies</h2>
                     <div class="panel-content log-list" id="nami-replies"></div>
                 </div>
             </div>
 
-            <!-- Right Column -->
-            <div id="console-panel" class="panel lg:col-span-1">
+            <div id="console-panel" class="panel lg:col-span-1 min-h-0">
                 <h2 class="panel-title">⚙️ Console Log</h2>
                 <div class="panel-content log-list" id="console-log"></div>
             </div>
@@ -70,7 +84,12 @@
         const namiReplies = document.getElementById('nami-replies');
         const consoleLog = document.getElementById('console-log');
         
-        const MAX_LOG_LINES = 100;
+        const MAX_CONSOLE_LINES = 100;
+        const twitchChatLog = [];
+        const MAX_TWITCH_CONTEXT_LINES = 5;
+        const visionLog = [];
+        const audioLog = [];
+        const MAX_AMBIENT_LOG_LINES = 20;
 
         function sanitizeHTML(str) {
             const temp = document.createElement('div');
@@ -78,7 +97,16 @@
             return temp.innerHTML;
         }
 
-        function appendLog(element, content, maxLines = MAX_LOG_LINES) {
+        // --- NEW: Function to highlight mentions in a message ---
+        function highlightMentions(message) {
+            const sanitizedMessage = sanitizeHTML(message);
+            // Use a regex to find all occurrences of 'nami' or 'peepingnami', case-insensitive (g, i flags)
+            // The '$&' in the replacement string inserts the exact text that was matched, preserving its original casing.
+            const regex = /(nami|peepingnami)/gi;
+            return sanitizedMessage.replace(regex, '<span class="highlight-word">$&</span>');
+        }
+
+        function appendLog(element, content, maxLines = MAX_CONSOLE_LINES) {
             element.insertAdjacentHTML('beforeend', content);
             while (element.children.length > maxLines) {
                 element.removeChild(element.firstChild);
@@ -86,6 +114,16 @@
             element.scrollTop = element.scrollHeight;
         }
 
+        function updateAmbientLog(element, logArray, newText) {
+            logArray.push(newText);
+            if (logArray.length > MAX_AMBIENT_LOG_LINES) {
+                logArray.shift(); 
+            }
+            element.textContent = logArray.join('\n\n'); 
+            const panelContent = element.parentElement;
+            panelContent.scrollTop = panelContent.scrollHeight;
+        }
+        
         socket.on('connect', () => {
             console.log('Connected to Nami UI Server');
             appendLog(consoleLog, `<div class="log-line text-green-400">Successfully connected to backend server.</div>`);
@@ -96,29 +134,43 @@
             appendLog(consoleLog, `<div class="log-line log-error">Disconnected from backend server.</div>`);
         });
 
-        socket.on('update_vision', (data) => {
-            visionContext.textContent = data.text;
+        socket.on('vision_context', (data) => {
+            updateAmbientLog(visionContext, visionLog, data.context);
         });
 
-        socket.on('update_audio', (data) => {
-            audioContext.textContent = data.text;
+        socket.on('audio_context', (data) => {
+            updateAmbientLog(audioContext, audioLog, data.context);
         });
 
-        socket.on('new_twitch_message', (data) => {
-            const messageHTML = `
-                <div class="log-line">
-                    <span class="twitch-user">${sanitizeHTML(data.username)}:</span>
-                    <span>${sanitizeHTML(data.message)}</span>
-                </div>`;
-            appendLog(twitchMessages, messageHTML);
+        // --- MODIFIED: Twitch handler now checks for mentions and applies highlighting ---
+        socket.on('twitch_message', (data) => {
+            twitchChatLog.push(data);
+            if (twitchChatLog.length > MAX_TWITCH_CONTEXT_LINES) {
+                twitchChatLog.shift();
+            }
+            
+            twitchMessages.innerHTML = '';
+            twitchChatLog.forEach(msg => {
+                const isMention = /(nami|peepingnami)/gi.test(msg.message);
+                const bgClass = isMention ? 'mention-bg' : '';
+                const formattedMessage = highlightMentions(msg.message);
+
+                const messageHTML = `
+                    <div class="log-line ${bgClass}">
+                        <span class="twitch-user">${sanitizeHTML(msg.username)}:</span>
+                        <span>${formattedMessage}</span>
+                    </div>`;
+                twitchMessages.insertAdjacentHTML('beforeend', messageHTML);
+            });
+            twitchMessages.scrollTop = twitchMessages.scrollHeight;
         });
 
-        socket.on('new_bot_reply', (data) => {
+        socket.on('bot_reply', (data) => {
             const replyHTML = `
                 <div class="log-line nami-reply">
                     <strong>Nami:</strong> ${sanitizeHTML(data.reply)}
                 </div>`;
-            appendLog(namiReplies, replyHTML);
+            appendLog(namiReplies, replyHTML, 50);
         });
 
         socket.on('log_message', (data) => {

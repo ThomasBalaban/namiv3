@@ -4,8 +4,8 @@ import queue
 from dataclasses import dataclass
 from enum import Enum, auto
 from typing import Dict, Optional, Any, Callable
-# --- MODIFIED: Import new context updaters ---
-from ..bot_core import update_vision_context, update_audio_context
+# --- MODIFIED: Import new context updater ---
+from ..bot_core import update_vision_context, update_audio_context, update_twitch_chat_context
 
 # Define input source types
 class InputSource(Enum):
@@ -81,16 +81,18 @@ class PrioritySystem:
             
         item = InputItem(source=source, text=text, timestamp=time.time(), metadata=metadata, raw_data=raw_data)
         
-        # --- MODIFIED: Update dedicated context storage instead of chat history ---
-        is_ambient = item.source in [InputSource.AMBIENT_AUDIO, InputSource.VISUAL_CHANGE]
-        if is_ambient:
-            if item.source == InputSource.AMBIENT_AUDIO:
-                update_audio_context(item.text)
-            else: # VISUAL_CHANGE
-                update_vision_context(item.text)
+        # --- MODIFIED: Route inputs to their respective context updaters ---
+        if item.source == InputSource.AMBIENT_AUDIO:
+            update_audio_context(item.text)
             print(f"Context updated: {source.name} - {text[:30]}...")
-        # --- END MODIFICATION ---
-
+        elif item.source == InputSource.VISUAL_CHANGE:
+            update_vision_context(item.text)
+            print(f"Context updated: {source.name} - {text[:30]}...")
+        elif item.source == InputSource.TWITCH_CHAT:
+            username = item.metadata.get('username', 'Someone')
+            update_twitch_chat_context(username, item.text)
+            print(f"Twitch context updated: {username}: {text[:30]}...")
+        
         score = self._calculate_score(item)
         item.score = score
         
@@ -99,11 +101,12 @@ class PrioritySystem:
             if len(self.recent_inputs) > self.max_recent_inputs:
                 self.recent_inputs.pop(0)
         
-        # Direct mentions and microphone input are still queued for a potential response
-        if not is_ambient:
+        # Only queue direct interactions for a potential response.
+        # General chat will now only serve as context.
+        if item.source in [InputSource.DIRECT_MICROPHONE, InputSource.TWITCH_MENTION]:
              self.input_queue.put((-score, time.time(), item))
-        
-        print(f"Input logged - Source: {source.name}, Text: {text[:30]}...")
+        else:
+            print(f"Input logged (context only) - Source: {source.name}, Text: {text[:30]}...")
     
     def _calculate_score(self, item: InputItem) -> float:
         from .priority_scoring import calculate_input_score
