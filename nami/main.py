@@ -68,27 +68,24 @@ class FunnelResponseHandler:
 
         print(f"\n[BOT] {response}")
         print("You: ", end="", flush=True)
+        
+        # --- MODIFIED LOGIC ---
+        # By default, we will now attempt to send every generated response to Twitch.
+        # This makes her feel more present in the chat.
+        try:
+            # The username is only available for direct mentions, so we handle its absence.
+            username = source_info.get('username')
+            twitch_response = f"@{username} {response}" if username else response
+            send_to_twitch_sync(twitch_response)
+        except Exception as e:
+            print(f"[TWITCH] Error sending response: {e}")
 
-        # Handle TTS if needed
+        # Handle TTS if needed (this logic remains the same)
         if self.tts_function and source_info.get('use_tts', False):
             try:
                 self.tts_function(response)
             except Exception as e:
                 print(f"[TTS] Error: {e}")
-
-        # Handle responses to Twitch
-        source_type = source_info.get('source', '').upper()
-        if source_type in ['TWITCH_MENTION', 'TWITCH_CHAT']:
-            try:
-                username = source_info.get('username', '')
-                if username:
-                    twitch_response = f"@{username} {response}"
-                else:
-                    twitch_response = response
-
-                send_to_twitch_sync(twitch_response)
-            except Exception as e:
-                print(f"[TWITCH] Error sending response: {e}")
 
 def console_input_loop():
     """Run the console input loop with command handling"""
