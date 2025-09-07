@@ -5,25 +5,31 @@ import numpy as np
 import sounddevice as sd
 import time
 import soundfile as sf
+import re
 from faster_whisper import WhisperModel
 from ..config import MICROPHONE_DEVICE_ID, FS, CHUNK_DURATION, OVERLAP, MAX_THREADS, SAVE_DIR
 from queue import Queue, Empty
 from threading import Thread, Event, Lock
 
 # Configuration for Microphone
-MODEL_SIZE = "base.en" 
+MODEL_SIZE = "base.en"
 DEVICE = "cpu"
 COMPUTE_TYPE = "int8"
 SAMPLE_RATE = FS  # Use the same sample rate as desktop audio
 CHANNELS = 1
+
+# --- VAD (Voice Activity Detection) Parameters ---
+VAD_ENERGY_THRESHOLD = 0.008  # Energy threshold to start detecting speech
+VAD_SILENCE_DURATION = 1.5    # Seconds of silence to consider speech ended
+VAD_MAX_SPEECH_DURATION = 15.0 # Maximum seconds to buffer before forcing a transcription
 
 # Global variables for this module
 model = None
 stop_event = Event()
 
 class MicrophoneTranscriber:
-    """Improved microphone transcriber with overlapping chunks like desktop audio"""
-    
+    """Improved microphone transcriber with VAD, smart buffering, and name correction"""
+
     def __init__(self, keep_files=False, transcript_manager=None):
         self.FS = SAMPLE_RATE
         self.SAVE_DIR = SAVE_DIR
@@ -31,13 +37,9 @@ class MicrophoneTranscriber:
         self.MODEL_SIZE = MODEL_SIZE
         self.DEVICE = DEVICE
         self.COMPUTE_TYPE = COMPUTE_TYPE
-        
-        # Set microphone-specific timing (faster than desktop audio)
-        self.CHUNK_DURATION = 1.5  # 1.5 seconds for faster response
-        self.OVERLAP = 0.5  # 0.5 second overlap
-        
+
         os.makedirs(self.SAVE_DIR, exist_ok=True)
-        
+
         print(f"🎙️ Initializing faster-whisper for Microphone: {self.MODEL_SIZE} on {self.DEVICE}")
         try:
             self.model = WhisperModel(self.MODEL_SIZE, device=self.DEVICE, compute_type=self.COMPUTE_TYPE)
@@ -45,7 +47,7 @@ class MicrophoneTranscriber:
         except Exception as e:
             print(f"❌ Error loading model: {e}")
             raise
-            
+
         self.result_queue = Queue()
         self.stop_event = stop_event
         self.saved_files = []
@@ -53,159 +55,111 @@ class MicrophoneTranscriber:
         self.active_threads = 0
         self.processing_lock = Event()
         self.processing_lock.set()
-        self.last_processed = time.time()
-        
-        # Audio buffering like desktop audio
-        self.audio_buffer = np.array([], dtype=np.float32)
+
+        # --- VAD and Buffering State ---
+        self.speech_buffer = np.array([], dtype=np.float32)
+        self.is_speaking = False
+        self.silence_start_time = None
+        self.speech_start_time = None
         self.buffer_lock = Lock()
-        
+
         self.transcript_manager = transcript_manager
 
+        # --- MODIFIED: Expanded Name Correction Dictionary ---
+        self.name_variations = {
+            r'\bnaomi\b': 'Nami',
+            r'\bnow may\b': 'Nami',
+            r'\bnomi\b': 'Nami',
+            r'\bnamy\b': 'Nami',
+            r'\bnot me\b': 'Nami',
+            r'\bnah me\b': 'Nami',
+            r'\bnonny\b': 'Nami',
+            r'\bnonni\b': 'Nami',
+            r'\bmamie\b': 'Nami',
+            r'\bgnomey\b': 'Nami',
+            r'\barmy\b': 'Nami',
+            r'\bpeepingnaomi\b': 'PeepingNami',
+            r'\bpeepingnomi\b': 'PeepingNami'
+        }
+
+
     def audio_callback(self, indata, frames, timestamp, status):
-        """Buffers audio and spawns processing threads for overlapping chunks."""
-        try:
-            # Resume processing if thread count is low
-            if not self.processing_lock.is_set() and self.active_threads < self.MAX_THREADS * 0.5:
-                self.processing_lock.set()
-                    
-            if self.stop_event.is_set():
-                return
-                
-            # Process incoming audio - flatten to mono
-            new_audio = indata.flatten().astype(np.float32)
-            
-            # Skip if audio is too quiet (noise gate)
-            rms_amplitude = np.sqrt(np.mean(new_audio**2))
-            if rms_amplitude < 0.008:  # Same threshold as original
-                return
-                
-            # Check for invalid data
-            if np.isnan(new_audio).any() or np.isinf(new_audio).any():
-                print("Warning: Microphone audio contains NaN or Inf values, replacing with zeros")
-                new_audio = np.nan_to_num(new_audio, nan=0.0, posinf=0.0, neginf=0.0)
-            
-            with self.buffer_lock:
-                self.audio_buffer = np.concatenate([self.audio_buffer, new_audio])
-                
-                # Limit buffer size to prevent memory issues (max 30 seconds)
-                max_buffer_size = self.FS * 30
-                if len(self.audio_buffer) > max_buffer_size:
-                    self.audio_buffer = self.audio_buffer[-max_buffer_size:]
-                
-                # Process when buffer reaches target duration and we're not overloaded
-                # FIXED: Use self.CHUNK_DURATION instead of imported CHUNK_DURATION
-                chunk_samples = int(self.FS * self.CHUNK_DURATION)
-                overlap_samples = int(self.FS * self.OVERLAP)
-                advance_samples = chunk_samples - overlap_samples
-                
-                if (self.processing_lock.is_set() and 
-                    len(self.audio_buffer) >= chunk_samples and
-                    self.active_threads < self.MAX_THREADS):
-                        
-                    # Check overall buffer energy before processing
-                    buffer_energy = np.abs(self.audio_buffer[:chunk_samples]).mean()
-                    if buffer_energy < 0.008:
-                        # Skip low-energy chunks, but still advance buffer
-                        self.audio_buffer = self.audio_buffer[advance_samples:]
-                        return
-                        
-                    # Copy chunk to prevent modification during processing
-                    chunk = self.audio_buffer[:chunk_samples].copy()
-                    # Slide buffer forward to create overlap
-                    self.audio_buffer = self.audio_buffer[advance_samples:]
-                        
-                    self.active_threads += 1
-                    Thread(target=self.process_chunk, args=(chunk,)).start()
-                    self.last_processed = time.time()
-                    
-                    # If we get too many threads, temporarily pause processing
-                    if self.active_threads >= self.MAX_THREADS:
-                        self.processing_lock.clear()
-                        print(f"Pausing microphone processing - too many active threads: {self.active_threads}")
-                        
-        except Exception as e:
-            print(f"Microphone audio callback error: {e}")
-            with self.buffer_lock:
-                self.audio_buffer = np.array([], dtype=np.float32)
+        """Analyzes audio for speech, buffers it, and sends complete utterances for transcription."""
+        if self.stop_event.is_set():
+            return
+
+        new_audio = indata.flatten().astype(np.float32)
+        rms_amplitude = np.sqrt(np.mean(new_audio**2))
+
+        with self.buffer_lock:
+            if rms_amplitude > VAD_ENERGY_THRESHOLD:
+                # --- Speech Detected ---
+                if not self.is_speaking:
+                    print("🎤 Speech detected, starting to buffer...")
+                    self.is_speaking = True
+                    self.speech_start_time = time.time()
+                self.speech_buffer = np.concatenate([self.speech_buffer, new_audio])
+                self.silence_start_time = None # Reset silence timer
+
+                # --- Smart Overflow Protection ---
+                if time.time() - self.speech_start_time > VAD_MAX_SPEECH_DURATION:
+                    print("🎤 Long speech detected, processing current buffer...")
+                    self._process_speech_buffer()
+
+            elif self.is_speaking:
+                # --- Silence after speech ---
+                if self.silence_start_time is None:
+                    self.silence_start_time = time.time()
+
+                if time.time() - self.silence_start_time > VAD_SILENCE_DURATION:
+                    print("🎤 Silence detected, processing buffered speech...")
+                    self._process_speech_buffer()
+
+    def _process_speech_buffer(self):
+        """Processes the buffered speech in a separate thread."""
+        if len(self.speech_buffer) > self.FS * 0.5 and self.active_threads < self.MAX_THREADS: # At least 0.5s of audio
+            chunk_to_process = self.speech_buffer.copy()
+            self.speech_buffer = np.array([], dtype=np.float32) # Clear buffer
+            self.is_speaking = False
+            self.silence_start_time = None
+            self.speech_start_time = None
+
+            self.active_threads += 1
+            Thread(target=self.process_chunk, args=(chunk_to_process,)).start()
+        else:
+            # Discard very short utterances (noise)
+            self.speech_buffer = np.array([], dtype=np.float32)
+            self.is_speaking = False
 
     def process_chunk(self, chunk):
-        """Process audio chunk and transcribe (similar to desktop audio processing)"""
+        """Transcribes a chunk of audio."""
         filename = None
         try:
-            # Exit early if we're stopping
-            if self.stop_event.is_set():
-                return
-                
-            # Pre-process audio like desktop audio
-            # 1. Ensure minimum length
-            if len(chunk) < self.FS * 0.5:
-                return
-                
-            # 2. Apply noise gate
-            amplitude = np.abs(chunk).mean()
-            if amplitude < 0.008:  # Same threshold as original
-                return
-                
-            # 3. Apply dynamic range compression
-            threshold = 0.02
-            ratio = 0.5
-            compressed = np.zeros_like(chunk)
-            for i in range(len(chunk)):
-                if abs(chunk[i]) > threshold:
-                    compressed[i] = chunk[i]
-                else:
-                    compressed[i] = chunk[i] * ratio
-            
-            # 4. Normalize audio after compression
-            max_val = np.max(np.abs(compressed))
-            if max_val < 1e-10:
-                return
-                
-            chunk = compressed / max_val
-            
-            # 5. Ensure even length
-            if len(chunk) % 2 != 0:
-                chunk = np.pad(chunk, (0, 1), 'constant')
-            
-            # Save audio file
             filename = self.save_audio(chunk)
-            
-            # Transcribe with optimized parameters for speech
             params = {
-                "beam_size": 5,  # Higher beam size for better accuracy
+                "beam_size": 5,
                 "language": "en",
-                "condition_on_previous_text": False
+                "condition_on_previous_text": False,
+                "initial_prompt": "Nami PeepingNami"
             }
-            
-            try:
-                # Transcribe
-                segments, info = self.model.transcribe(chunk, **params)
-                text = "".join(seg.text for seg in segments).strip()
-                
-                # Post-process text
-                import re
-                text = re.sub(r'(\w)(\s*-\s*\1){3,}', r'\1...', text)
-                
-                if text and len(text) >= 2:  # Minimum length check
-                    self.result_queue.put((text, filename, "microphone", 0.8))
-                else:
-                    # Clean up file if no text
-                    if not self.keep_files and filename and os.path.exists(filename):
-                        os.remove(filename)
-                    
-            except Exception as e:
-                print(f"Microphone transcription error: {str(e)}")
-                # Clean up file on error
+            segments, info = self.model.transcribe(chunk, **params)
+            text = "".join(seg.text for seg in segments).strip()
+
+            if text and len(text) >= 2:
+                self.result_queue.put((text, filename, "microphone", info.language_probability))
+            else:
                 if not self.keep_files and filename and os.path.exists(filename):
-                    try:
-                        os.remove(filename)
-                    except:
-                        pass
-                
+                    os.remove(filename)
         except Exception as e:
-            print(f"Microphone processing error: {str(e)}")
+            print(f"Microphone transcription error: {str(e)}")
+            if not self.keep_files and filename and os.path.exists(filename):
+                try:
+                    os.remove(filename)
+                except:
+                    pass
         finally:
             self.active_threads -= 1
+
 
     def save_audio(self, chunk):
         """Save audio chunk to file and return filename"""
@@ -221,18 +175,22 @@ class MicrophoneTranscriber:
             try:
                 if not self.result_queue.empty():
                     text, filename, audio_type, confidence = self.result_queue.get()
-                    
+
                     if text:
+                        corrected_text = text
+                        for variation, name in self.name_variations.items():
+                            corrected_text = re.sub(variation, name, corrected_text, flags=re.IGNORECASE)
+
                         # Print in the required format
-                        print(f"[Microphone Input] {text}", flush=True)
+                        print(f"[Microphone Input] {corrected_text}", flush=True)
 
                         # Clean up file after processing
                         if not self.keep_files and filename and os.path.exists(filename):
-                            try: 
+                            try:
                                 os.remove(filename)
-                            except Exception as e: 
+                            except Exception as e:
                                 print(f"Error removing file: {str(e)}")
-                    
+
                     self.result_queue.task_done()
                 time.sleep(0.05)
             except Exception as e:
@@ -240,25 +198,12 @@ class MicrophoneTranscriber:
 
     def run(self):
         """Start the audio stream and worker threads"""
-        print("DEBUG: Starting run method")
-        print(f"DEBUG: hasattr CHUNK_DURATION: {hasattr(self, 'CHUNK_DURATION')}")
-        print(f"DEBUG: hasattr OVERLAP: {hasattr(self, 'OVERLAP')}")
-        
-        if hasattr(self, 'CHUNK_DURATION'):
-            print(f"DEBUG: CHUNK_DURATION value: {self.CHUNK_DURATION}")
-        if hasattr(self, 'OVERLAP'):
-            print(f"DEBUG: OVERLAP value: {self.OVERLAP}")
-            
-        print(f"Model: {self.MODEL_SIZE.upper()} | Device: {self.DEVICE.upper()}")
-        print(f"Microphone Chunk: {self.CHUNK_DURATION}s with {self.OVERLAP}s overlap")
-
         output_thread = Thread(target=self.output_worker, daemon=True)
         output_thread.start()
-        
+
         try:
-            # Use even smaller blocksize for more responsive processing
-            blocksize = self.FS // 40  # 25ms blocks for very responsive microphone input
-            
+            blocksize = self.FS // 20  # 50ms blocks for responsive VAD
+
             with sd.InputStream(
                 device=MICROPHONE_DEVICE_ID,
                 samplerate=self.FS,
@@ -267,10 +212,10 @@ class MicrophoneTranscriber:
                 blocksize=blocksize,
                 dtype='float32'
             ):
-                print("🎤 Listening to microphone with improved real-time processing...")
+                print("🎤 Listening to microphone with VAD...")
                 while not self.stop_event.is_set():
                     time.sleep(0.1)
-                    
+
         except KeyboardInterrupt:
             print("\nReceived interrupt, stopping microphone transcriber...")
         finally:
@@ -280,9 +225,9 @@ class MicrophoneTranscriber:
                 time.sleep(0.5)
                 for filename in self.saved_files:
                      if os.path.exists(filename):
-                        try: 
+                        try:
                             os.remove(filename)
-                        except: 
+                        except:
                             pass
             print("🎤 Microphone transcription stopped.")
 
@@ -290,9 +235,7 @@ class MicrophoneTranscriber:
 def transcribe_microphone():
     """Main entry point function for hearing.py to call"""
     try:
-        print("Creating MicrophoneTranscriber instance...")
         transcriber = MicrophoneTranscriber()
-        print("Running transcriber...")
         transcriber.run()
     except Exception as e:
         print(f"A critical error occurred in the microphone transcriber: {e}")

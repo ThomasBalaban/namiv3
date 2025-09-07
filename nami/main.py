@@ -162,7 +162,8 @@ def main():
         input_funnel = InputFunnel(
             bot_callback=ask_question,
             response_handler=funnel_response_handler.handle_response,
-            min_prompt_interval=2.0
+            # --- MODIFIED: Reduced prompt interval for better responsiveness ---
+            min_prompt_interval=0.8
         )
         global_input_funnel = input_funnel
 

@@ -135,7 +135,8 @@ class PrioritySystem:
                         self.last_response_time = time.time()
                 
                 self.input_queue.task_done()
-                time.sleep(0.5)
+                # --- MODIFIED: Reduced sleep time for faster queue processing ---
+                time.sleep(0.1)
                 
             except queue.Empty:
                 time.sleep(0.1)
