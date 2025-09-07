@@ -47,9 +47,16 @@ def audio_callback(indata, frames, time_info, status):
         if np.abs(audio_chunk).mean() < 0.01: # Adjust this threshold as needed
             return
 
-        # Transcribe the audio chunk
-        segments, info = model.transcribe(audio_chunk, beam_size=5)
+        # Transcribe the audio chunk with faster-whisper compatible parameters
+        segments, info = model.transcribe(
+            audio_chunk, 
+            beam_size=5,
+            language="en",
+            vad_filter=True,
+            vad_parameters=dict(threshold=0.5, min_silence_duration_ms=300)
+        )
         
+        # Extract text from segments
         full_text = "".join(segment.text for segment in segments).strip()
 
         if full_text and transcript_manager:

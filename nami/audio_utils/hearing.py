@@ -32,7 +32,7 @@ def process_transcript(message):
 def setup_signal_handlers(transcript_manager):
     """Set up signal handlers for graceful shutdown"""
     def signal_handler(sig, frame):
-        print("\nShutting down transcription system...")
+        print("\n🛑 Shutting down transcription system...")
         if transcript_manager:
             transcript_manager.close()
         sys.exit(0)
@@ -45,11 +45,14 @@ def setup_signal_handlers(transcript_manager):
         atexit.register(transcript_manager.close)
 
 def main():    
+    print("🎙️ Initializing Audio Transcription System...")
+    
     # Initialize transcript manager
     transcript_manager = None
     
     try:
         transcript_manager = TranscriptManager()
+        print("✅ Transcript manager initialized")
         
         # Set up direct processing
         old_publish = transcript_manager.publish_transcript
@@ -68,37 +71,46 @@ def main():
         # Set up signal handlers for graceful shutdown
         setup_signal_handlers(transcript_manager)
     except Exception as e:
-        print(f"Error initializing transcript manager: {e}")
-        print(f"Running without messaging.")
+        print(f"⚠️ Error initializing transcript manager: {e}")
+        print(f"Running without persistent storage.")
         
         # Fall back to memory-only manager
         transcript_manager = TranscriptManager()
             
     # Start the microphone transcription in a separate thread
-    print("Starting microphone transcription...")
-    mic_thread = threading.Thread(
-        target=transcribe_microphone,
-        args=(False, transcript_manager),  # Fix: added comma to make it a tuple
-        daemon=True
-    )
-    mic_thread.start()
+    print("🎤 Starting microphone transcription...")
+    try:
+        mic_thread = threading.Thread(
+            target=transcribe_microphone,
+            args=(False, transcript_manager),
+            daemon=True
+        )
+        mic_thread.start()
+        print("✅ Microphone thread started successfully")
+    except Exception as e:
+        print(f"❌ Error starting microphone thread: {e}")
     
     # Create and run the main Whisper transcriber
-    print("Starting desktop audio transcription...")
-    transcriber = SpeechMusicTranscriber(
-        transcript_manager=transcript_manager
-    )
-    
+    print("🔊 Starting desktop audio transcription...")
     try:
+        transcriber = SpeechMusicTranscriber(
+            transcript_manager=transcript_manager
+        )
+        print("✅ Desktop transcriber initialized")
+        
+        print("🚀 System initialization complete, starting transcription...")
         transcriber.run()
     except KeyboardInterrupt:
-        print("Stopping all services...")
+        print("\n🛑 Stopping all services...")
+    except Exception as e:
+        print(f"❌ Error in desktop transcriber: {e}")
+        import traceback
+        traceback.print_exc()
     finally:
-        # Stop the transcript manager if it's running
+        print("🔄 Cleaning up resources...")
         if transcript_manager:
             transcript_manager.close()
-            
-        print("Shutdown complete.")
+        print("✅ Shutdown complete.")
 
 if __name__ == "__main__":
     main()
