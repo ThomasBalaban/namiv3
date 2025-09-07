@@ -130,19 +130,31 @@ def handle_desktop_audio_input(transcription, audio_type, confidence):
     if priority_system is None:
         return
 
+    # Check if the transcription contains a direct mention of the bot's name
+    is_direct = 'nami' in transcription.lower() or 'peepingnami' in transcription.lower()
+
     metadata = {
         'source_type': audio_type,
         'confidence': confidence,
-        'is_direct': False,
+        'is_direct': is_direct,
         'relevance': confidence * 0.8,
-        'urgency': 0.2
+        'urgency': 0.5 if is_direct else 0.2  # Higher urgency for direct mentions
     }
 
-    priority_system.add_input(
-        InputSource.AMBIENT_AUDIO,
-        transcription,
-        metadata
-    )
+    # If it's a direct mention, treat it like a direct microphone input to trigger a response.
+    # Otherwise, treat it as ambient audio for context only.
+    if is_direct:
+        priority_system.add_input(
+            InputSource.DIRECT_MICROPHONE,  # Using DIRECT_MICROPHONE to ensure it's processed for a reply
+            transcription,
+            metadata
+        )
+    else:
+        priority_system.add_input(
+            InputSource.AMBIENT_AUDIO,
+            transcription,
+            metadata
+        )
 
 def process_hearing_line(line):
     """Process a line of output from the hearing system"""
