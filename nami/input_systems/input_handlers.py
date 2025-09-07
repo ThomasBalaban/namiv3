@@ -106,6 +106,13 @@ def handle_microphone_input(transcription, confidence=0.7):
                 transcription,
                 metadata
             )
+        else:
+            priority_system.add_input(
+                InputSource.MICROPHONE,
+                transcription,
+                metadata
+            )
+
 
 def handle_desktop_audio_input(transcription, audio_type, confidence):
     """Process input specifically from desktop audio"""

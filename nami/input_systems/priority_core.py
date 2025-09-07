@@ -14,6 +14,8 @@ class InputSource(Enum):
     AMBIENT_AUDIO = auto()
     VISUAL_CHANGE = auto()
     TWITCH_CHAT = auto()
+    MICROPHONE = auto()
+
 
 # Define conversation states that affect thresholds
 class ConversationState(Enum):
@@ -46,7 +48,8 @@ class PrioritySystem:
             InputSource.TWITCH_MENTION: 0.7,
             InputSource.AMBIENT_AUDIO: 0.3,
             InputSource.VISUAL_CHANGE: 0.4,
-            InputSource.TWITCH_CHAT: 0.2
+            InputSource.TWITCH_CHAT: 0.2,
+            InputSource.MICROPHONE: 0.5
         }
         
         self.current_state = ConversationState.IDLE
@@ -82,7 +85,7 @@ class PrioritySystem:
         item = InputItem(source=source, text=text, timestamp=time.time(), metadata=metadata, raw_data=raw_data)
         
         # --- MODIFIED: Route inputs to their respective context updaters ---
-        if item.source == InputSource.DIRECT_MICROPHONE:
+        if item.source == InputSource.DIRECT_MICROPHONE or item.source == InputSource.MICROPHONE:
             update_spoken_word_context(item.text)
             print(f"Context updated: {source.name} - {text[:30]}...")
         elif item.source == InputSource.AMBIENT_AUDIO:

@@ -28,7 +28,8 @@ def start_hearing_system(callback=None):
     with a provided callback function.
     """
     global hearing_process
-    cmd = [sys.executable, hearing.__file__]
+    # --- FIX: Run hearing.py as a module to resolve relative imports ---
+    cmd = [sys.executable, "-m", "nami.audio_utils.hearing"]
 
     try:
         hearing_process = subprocess.Popen(

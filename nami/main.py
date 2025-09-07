@@ -95,10 +95,17 @@ class FunnelResponseHandler:
         
         emit_bot_reply(response)
 
+        # --- MODIFIED: Send response to Twitch for mic input as well ---
         try:
-            username = source_info.get('username')
-            if source_info.get('source') == 'TWITCH_MENTION':
-                twitch_response = f"@{username} {response}" if username else response
+            source = source_info.get('source')
+            if source in ['TWITCH_MENTION', 'DIRECT_MICROPHONE']:
+                username = source_info.get('username')
+                # Format as a reply if it's from a specific user in chat
+                if source == 'TWITCH_MENTION' and username:
+                    twitch_response = f"@{username} {response}"
+                else:
+                    # Otherwise, send the raw response
+                    twitch_response = response
                 send_to_twitch_sync(twitch_response)
         except Exception as e:
             print(f"[TWITCH] Error sending response: {e}")
