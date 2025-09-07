@@ -44,33 +44,60 @@ def audio_callback(indata, frames, time_info, status):
         audio_chunk = indata.flatten().astype(np.float32)
         
         # Check if audio chunk is loud enough to be speech
-        if np.abs(audio_chunk).mean() < 0.01: # Adjust this threshold as needed
+        rms_level = np.sqrt(np.mean(audio_chunk**2))
+        if rms_level < 0.01:  # Adjust this threshold as needed
             return
 
-        # Transcribe the audio chunk with faster-whisper compatible parameters
-        segments, info = model.transcribe(
-            audio_chunk, 
-            beam_size=5,
-            language="en",
-            vad_filter=True,
-            vad_parameters=dict(threshold=0.5, min_silence_duration_ms=300)
-        )
+        print(f"🎤 Processing audio (RMS: {rms_level:.4f})...")
         
-        # Extract text from segments
-        full_text = "".join(segment.text for segment in segments).strip()
-
-        if full_text and transcript_manager:
-            metadata = {
-                "device_id": MICROPHONE_DEVICE_ID,
-                "sample_rate": SAMPLE_RATE,
-                "language": info.language,
-                "language_probability": info.language_probability
-            }
-            transcript_manager.publish_transcript(
-                source="microphone",
-                text=full_text,
-                metadata=metadata
+        # Transcribe the audio chunk with faster-whisper compatible parameters
+        # ONLY use parameters that faster-whisper supports
+        try:
+            segments, info = model.transcribe(
+                audio_chunk, 
+                beam_size=1,
+                language="en"
             )
+            
+            # Extract text from segments
+            full_text = "".join(segment.text for segment in segments).strip()
+            
+            print(f"🎤 Transcribed: '{full_text}'")
+
+            if full_text and transcript_manager:
+                metadata = {
+                    "device_id": MICROPHONE_DEVICE_ID,
+                    "sample_rate": SAMPLE_RATE,
+                    "language": info.language,
+                    "language_probability": info.language_probability
+                }
+                transcript_manager.publish_transcript(
+                    source="microphone",
+                    text=full_text,
+                    metadata=metadata
+                )
+        except Exception as e:
+            print(f"🎤 Transcription error: {e}")
+            # Try with no parameters as fallback
+            try:
+                segments, info = model.transcribe(audio_chunk)
+                full_text = "".join(segment.text for segment in segments).strip()
+                print(f"🎤 Fallback transcribed: '{full_text}'")
+                
+                if full_text and transcript_manager:
+                    metadata = {
+                        "device_id": MICROPHONE_DEVICE_ID,
+                        "sample_rate": SAMPLE_RATE,
+                        "language": info.language,
+                        "language_probability": info.language_probability
+                    }
+                    transcript_manager.publish_transcript(
+                        source="microphone",
+                        text=full_text,
+                        metadata=metadata
+                    )
+            except Exception as e2:
+                print(f"🎤 Even fallback transcription failed: {e2}")
             
     except Exception as e:
         print(f"Microphone callback error: {e}", file=sys.stderr)
