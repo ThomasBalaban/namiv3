@@ -5,123 +5,78 @@ import sounddevice as sd
 import time
 from faster_whisper import WhisperModel
 from ..config import MICROPHONE_DEVICE_ID
+from queue import Queue, Empty
+from threading import Thread, Event
 
 # ---- Configuration ----
-# Model size can be: "tiny.en", "base.en", "small.en", "medium.en", "large-v3"
-# Using a smaller model like "base.en" is recommended for real-time performance.
-MODEL_SIZE = "base.en" 
-# or "cuda" if you have a compatible GPU and CUDA installed
-DEVICE = "cpu" 
-COMPUTE_TYPE = "int8" # change to "float16" for GPU
-
-SAMPLE_RATE = 16000 # Whisper models are trained on 16kHz audio
+MODEL_SIZE = "base.en" # Using the fast and accurate base model
+DEVICE = "cpu"
+COMPUTE_TYPE = "int8"
+SAMPLE_RATE = 16000
 CHANNELS = 1
-BLOCKSIZE = 16000 # 1 second of audio
+BLOCKSIZE = int(SAMPLE_RATE * 1.5) # Process 1.5-second chunks
 
-# Global variable for the transcription model
+# Global variables for this self-contained module
 model = None
-transcript_manager = None
+audio_queue = Queue()
+stop_event = Event()
 
 def initialize_faster_whisper():
-    """Initializes the Faster Whisper model."""
+    """Initializes the Faster Whisper model for the microphone."""
     global model
-    print("Initializing Faster Whisper model...")
+    print("🎙️ Initializing faster-whisper for Microphone...")
     try:
-        model = WhisperModel(MODEL_SIZE, device=DEVICE, compute_type=COMPUTE_TYPE)
-        print("Faster Whisper model ready.")
+        # Specify a download root to avoid conflicts if needed
+        model_path = os.path.join(os.path.expanduser("~"), ".cache/faster-whisper-mic")
+        os.makedirs(model_path, exist_ok=True)
+        model = WhisperModel(MODEL_SIZE, device=DEVICE, compute_type=COMPUTE_TYPE, download_root=model_path)
+        print("✅ faster-whisper model for Microphone is ready.")
     except Exception as e:
-        print(f"Error initializing Faster Whisper: {e}")
+        print(f"❌ Error initializing faster-whisper for Microphone: {e}")
         raise
 
 def audio_callback(indata, frames, time_info, status):
-    """Processes audio from the microphone and transcribes it."""
-    global model, transcript_manager
-    
+    """Puts microphone audio chunks into a queue."""
     if status:
         print(status, file=sys.stderr)
+    audio_queue.put(indata.copy())
 
-    try:
-        audio_chunk = indata.flatten().astype(np.float32)
-        
-        # Check if audio chunk is loud enough to be speech
-        rms_level = np.sqrt(np.mean(audio_chunk**2))
-        if rms_level < 0.01:  # Adjust this threshold as needed
-            return
-
-        print(f"🎤 Processing audio (RMS: {rms_level:.4f})...")
-        
-        # Transcribe the audio chunk with faster-whisper compatible parameters
-        # ONLY use parameters that faster-whisper supports
+def transcription_worker():
+    """Worker thread that processes microphone audio from the queue."""
+    global model
+    while not stop_event.is_set():
         try:
-            segments, info = model.transcribe(
-                audio_chunk, 
-                beam_size=1,
-                language="en"
-            )
-            
-            # Extract text from segments
+            audio_chunk_raw = audio_queue.get(timeout=1.0)
+            audio_chunk = audio_chunk_raw.flatten().astype(np.float32)
+
+            rms_level = np.sqrt(np.mean(audio_chunk**2))
+            if rms_level < 0.008: # Voice activity detection threshold
+                continue
+
+            segments, info = model.transcribe(audio_chunk, beam_size=5, language="en")
             full_text = "".join(segment.text for segment in segments).strip()
-            
-            print(f"🎤 Transcribed: '{full_text}'")
 
-            if full_text and transcript_manager:
-                metadata = {
-                    "device_id": MICROPHONE_DEVICE_ID,
-                    "sample_rate": SAMPLE_RATE,
-                    "language": info.language,
-                    "language_probability": info.language_probability
-                }
-                transcript_manager.publish_transcript(
-                    source="microphone",
-                    text=full_text,
-                    metadata=metadata
-                )
+            if full_text:
+                # Print in the expected format for the main application
+                print(f"[Microphone Input] {full_text}")
+                sys.stdout.flush()
+
+        except Empty:
+            continue
         except Exception as e:
-            print(f"🎤 Transcription error: {e}")
-            # Try with no parameters as fallback
-            try:
-                segments, info = model.transcribe(audio_chunk)
-                full_text = "".join(segment.text for segment in segments).strip()
-                print(f"🎤 Fallback transcribed: '{full_text}'")
-                
-                if full_text and transcript_manager:
-                    metadata = {
-                        "device_id": MICROPHONE_DEVICE_ID,
-                        "sample_rate": SAMPLE_RATE,
-                        "language": info.language,
-                        "language_probability": info.language_probability
-                    }
-                    transcript_manager.publish_transcript(
-                        source="microphone",
-                        text=full_text,
-                        metadata=metadata
-                    )
-            except Exception as e2:
-                print(f"🎤 Even fallback transcription failed: {e2}")
-            
-    except Exception as e:
-        print(f"Microphone callback error: {e}", file=sys.stderr)
+            print(f"🎤 Whisper transcription error: {e}", file=sys.stderr)
 
-def transcribe_microphone(debug_mode=False, manager=None):
-    """
-    Starts microphone transcription with Faster Whisper.
-    
-    Args:
-        debug_mode: Enable debug output.
-        manager: TranscriptManager instance for publishing transcripts.
-    """
-    global transcript_manager
-    transcript_manager = manager
-
+def transcribe_microphone():
+    """Starts the complete, self-contained microphone transcription system."""
     try:
-        # Initialize the model
         initialize_faster_whisper()
-
-        # Get device info
         device_info = sd.query_devices(MICROPHONE_DEVICE_ID, 'input')
         print(f"🎤 Using: {device_info['name']} (ID: {MICROPHONE_DEVICE_ID})")
 
-        # Start the audio stream
+        # Start the whisper worker thread
+        worker = Thread(target=transcription_worker, daemon=True)
+        worker.start()
+
         with sd.InputStream(
             device=MICROPHONE_DEVICE_ID,
             samplerate=SAMPLE_RATE,
@@ -130,16 +85,17 @@ def transcribe_microphone(debug_mode=False, manager=None):
             channels=CHANNELS,
             callback=audio_callback
         ):
-            print("🎧 Listening with microphone (Faster Whisper)...")
-            while True:
-                sd.sleep(1000)
+            print("🎤 Whisper is now listening to the microphone...")
+            stop_event.wait() # Keep the stream alive until stop_event is set
 
     except Exception as e:
-        print(f"Error in transcribe_microphone: {e}", file=sys.stderr)
-        return
+        print(f"❌ Error in transcribe_microphone: {e}", file=sys.stderr)
+    finally:
+        print("🎤 Microphone transcription stopped.")
 
 if __name__ == "__main__":
     try:
         transcribe_microphone()
     except KeyboardInterrupt:
-        print("\nStopped listening")
+        print("\nStopping microphone listener...")
+        stop_event.set()

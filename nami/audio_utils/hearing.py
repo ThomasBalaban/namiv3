@@ -1,116 +1,51 @@
 import threading
-import os
 import time
 import signal
 import sys
-import atexit
-from nami.audio_utils.desktop_transcriber import SpeechMusicTranscriber
-from nami.audio_utils.microphone import transcribe_microphone
-from nami.audio_utils.audio_manager import TranscriptManager
 
-def process_transcript(message):
-    """
-    Process incoming transcripts from the message queue.
-    Format the output according to the source for main.py to recognize.
-    """
-    source = message.get("source", "unknown")
-    text = message.get("text", "")
-    
-    # Format the output differently based on source
-    if source.lower() == "microphone":
-        # Format for microphone - this is what main.py is looking for
-        print(f"[Microphone Input] {text}")
-    elif source.lower() in ["desktop", "speech", "music"]:
-        # Format for desktop audio - main.py expects this format
-        confidence = message.get("metadata", {}).get("confidence", 0.7)
-        source_type = message.get("metadata", {}).get("source_type", "SPEECH")
-        print(f"[{source_type} {confidence:.2f}] {text}")
-    else:
-        # Fallback format for other sources
-        print(f"AI RECEIVED: ({source}) {text}")
+# Import the main function from each of our new self-contained transcribers
+from .desktop_transcriber import run_desktop_transcriber
+from .microphone import transcribe_microphone, stop_event as mic_stop_event
 
-def setup_signal_handlers(transcript_manager):
-    """Set up signal handlers for graceful shutdown"""
-    def signal_handler(sig, frame):
-        print("\n🛑 Shutting down transcription system...")
-        if transcript_manager:
-            transcript_manager.close()
+def main():
+    print("🎙️ Initializing Hybrid Audio Transcription System (Vosk + Whisper)...")
+
+    # --- Create a thread for the VOSK Desktop Transcriber ---
+    desktop_thread = threading.Thread(
+        target=run_desktop_transcriber,
+        daemon=True,
+        name="VoskDesktopThread"
+    )
+
+    # --- Create a thread for the Whisper Microphone Transcriber ---
+    mic_thread = threading.Thread(
+        target=transcribe_microphone,
+        daemon=True,
+        name="WhisperMicThread"
+    )
+
+    # --- Start both threads ---
+    desktop_thread.start()
+    time.sleep(1) # Give it a second to initialize before starting the next one
+    mic_thread.start()
+
+    print("✅ Both transcription systems are running in the background.")
+    print("Press Ctrl+C to stop.")
+
+    # --- Graceful Shutdown Logic ---
+    def shutdown(sig, frame):
+        print("\n🛑 Shutting down all systems...")
+        # Signal the microphone thread to stop its loops
+        mic_stop_event.set()
+        # The desktop thread is a daemon and will exit when the main script exits.
         sys.exit(0)
-        
-    signal.signal(signal.SIGINT, signal_handler)
-    signal.signal(signal.SIGTERM, signal_handler)
-    
-    # Also register an exit handler
-    if transcript_manager:
-        atexit.register(transcript_manager.close)
 
-def main():    
-    print("🎙️ Initializing Audio Transcription System...")
-    
-    # Initialize transcript manager
-    transcript_manager = None
-    
-    try:
-        transcript_manager = TranscriptManager()
-        print("✅ Transcript manager initialized")
-        
-        # Set up direct processing
-        old_publish = transcript_manager.publish_transcript
-        def new_publish(source, text, timestamp=None, metadata=None):
-            # Call the original for any in-memory tracking
-            old_publish(source, text, timestamp, metadata)
-            # Also process immediately
-            process_transcript({
-                "source": source,
-                "text": text,
-                "timestamp": timestamp or time.strftime("%H:%M:%S"),
-                "metadata": metadata or {}
-            })
-        transcript_manager.publish_transcript = new_publish
-            
-        # Set up signal handlers for graceful shutdown
-        setup_signal_handlers(transcript_manager)
-    except Exception as e:
-        print(f"⚠️ Error initializing transcript manager: {e}")
-        print(f"Running without persistent storage.")
-        
-        # Fall back to memory-only manager
-        transcript_manager = TranscriptManager()
-            
-    # Start the microphone transcription in a separate thread
-    print("🎤 Starting microphone transcription...")
-    try:
-        mic_thread = threading.Thread(
-            target=transcribe_microphone,
-            args=(False, transcript_manager),
-            daemon=True
-        )
-        mic_thread.start()
-        print("✅ Microphone thread started successfully")
-    except Exception as e:
-        print(f"❌ Error starting microphone thread: {e}")
-    
-    # Create and run the main Whisper transcriber
-    print("🔊 Starting desktop audio transcription...")
-    try:
-        transcriber = SpeechMusicTranscriber(
-            transcript_manager=transcript_manager
-        )
-        print("✅ Desktop transcriber initialized")
-        
-        print("🚀 System initialization complete, starting transcription...")
-        transcriber.run()
-    except KeyboardInterrupt:
-        print("\n🛑 Stopping all services...")
-    except Exception as e:
-        print(f"❌ Error in desktop transcriber: {e}")
-        import traceback
-        traceback.print_exc()
-    finally:
-        print("🔄 Cleaning up resources...")
-        if transcript_manager:
-            transcript_manager.close()
-        print("✅ Shutdown complete.")
+    signal.signal(signal.SIGINT, shutdown)
+    signal.signal(signal.SIGTERM, shutdown)
+
+    # Keep the main thread alive to wait for the shutdown signal
+    while desktop_thread.is_alive() and mic_thread.is_alive():
+        time.sleep(1)
 
 if __name__ == "__main__":
     main()
