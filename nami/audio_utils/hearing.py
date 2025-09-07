@@ -1,3 +1,4 @@
+# nami/audio_utils/hearing.py
 import threading
 import time
 import signal
@@ -5,6 +6,7 @@ import sys
 
 # Import the main function from each of our self-contained Whisper transcribers
 from .desktop_transcriber import run_desktop_transcriber, stop_event as desktop_stop_event
+# --- MODIFIED: Import the improved microphone transcriber ---
 from .microphone import transcribe_microphone, stop_event as mic_stop_event
 
 def main():
@@ -17,7 +19,7 @@ def main():
         name="WhisperDesktopThread"
     )
 
-    # --- Create a thread for the Microphone Whisper Transcriber ---
+    # --- Create a thread for the Improved Microphone Whisper Transcriber ---
     mic_thread = threading.Thread(
         target=transcribe_microphone,
         daemon=True,
