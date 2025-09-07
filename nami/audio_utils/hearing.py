@@ -3,21 +3,21 @@ import time
 import signal
 import sys
 
-# Import the main function from each of our new self-contained transcribers
-from .desktop_transcriber import run_desktop_transcriber
+# Import the main function from each of our self-contained Whisper transcribers
+from .desktop_transcriber import run_desktop_transcriber, stop_event as desktop_stop_event
 from .microphone import transcribe_microphone, stop_event as mic_stop_event
 
 def main():
-    print("🎙️ Initializing Hybrid Audio Transcription System (Vosk + Whisper)...")
+    print("🎙️ Initializing Dual faster-whisper Transcription System...")
 
-    # --- Create a thread for the VOSK Desktop Transcriber ---
+    # --- Create a thread for the Desktop Whisper Transcriber ---
     desktop_thread = threading.Thread(
         target=run_desktop_transcriber,
         daemon=True,
-        name="VoskDesktopThread"
+        name="WhisperDesktopThread"
     )
 
-    # --- Create a thread for the Whisper Microphone Transcriber ---
+    # --- Create a thread for the Microphone Whisper Transcriber ---
     mic_thread = threading.Thread(
         target=transcribe_microphone,
         daemon=True,
@@ -26,18 +26,17 @@ def main():
 
     # --- Start both threads ---
     desktop_thread.start()
-    time.sleep(1) # Give it a second to initialize before starting the next one
+    time.sleep(2) # Give it a moment to load the first model
     mic_thread.start()
 
-    print("✅ Both transcription systems are running in the background.")
+    print("✅ Both Whisper transcription systems are running.")
     print("Press Ctrl+C to stop.")
 
     # --- Graceful Shutdown Logic ---
     def shutdown(sig, frame):
         print("\n🛑 Shutting down all systems...")
-        # Signal the microphone thread to stop its loops
         mic_stop_event.set()
-        # The desktop thread is a daemon and will exit when the main script exits.
+        desktop_stop_event.set()
         sys.exit(0)
 
     signal.signal(signal.SIGINT, shutdown)

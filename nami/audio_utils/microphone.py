@@ -8,13 +8,14 @@ from ..config import MICROPHONE_DEVICE_ID
 from queue import Queue, Empty
 from threading import Thread, Event
 
-# ---- Configuration ----
-MODEL_SIZE = "base.en" # Using the fast and accurate base model
+# ---- Configuration for Microphone ---
+MODEL_SIZE = "base.en" 
 DEVICE = "cpu"
+# --- FIX: Change compute type to int8 for optimal CPU performance ---
 COMPUTE_TYPE = "int8"
 SAMPLE_RATE = 16000
 CHANNELS = 1
-BLOCKSIZE = int(SAMPLE_RATE * 1.5) # Process 1.5-second chunks
+BLOCKSIZE = int(SAMPLE_RATE * 1.5)
 
 # Global variables for this self-contained module
 model = None
@@ -26,10 +27,7 @@ def initialize_faster_whisper():
     global model
     print("🎙️ Initializing faster-whisper for Microphone...")
     try:
-        # Specify a download root to avoid conflicts if needed
-        model_path = os.path.join(os.path.expanduser("~"), ".cache/faster-whisper-mic")
-        os.makedirs(model_path, exist_ok=True)
-        model = WhisperModel(MODEL_SIZE, device=DEVICE, compute_type=COMPUTE_TYPE, download_root=model_path)
+        model = WhisperModel(MODEL_SIZE, device=DEVICE, compute_type=COMPUTE_TYPE)
         print("✅ faster-whisper model for Microphone is ready.")
     except Exception as e:
         print(f"❌ Error initializing faster-whisper for Microphone: {e}")
@@ -50,21 +48,20 @@ def transcription_worker():
             audio_chunk = audio_chunk_raw.flatten().astype(np.float32)
 
             rms_level = np.sqrt(np.mean(audio_chunk**2))
-            if rms_level < 0.008: # Voice activity detection threshold
+            if rms_level < 0.008:
                 continue
 
             segments, info = model.transcribe(audio_chunk, beam_size=5, language="en")
             full_text = "".join(segment.text for segment in segments).strip()
 
             if full_text:
-                # Print in the expected format for the main application
                 print(f"[Microphone Input] {full_text}")
                 sys.stdout.flush()
 
         except Empty:
             continue
         except Exception as e:
-            print(f"🎤 Whisper transcription error: {e}", file=sys.stderr)
+            print(f"🎤 Mic Whisper transcription error: {e}", file=sys.stderr)
 
 def transcribe_microphone():
     """Starts the complete, self-contained microphone transcription system."""
@@ -73,7 +70,6 @@ def transcribe_microphone():
         device_info = sd.query_devices(MICROPHONE_DEVICE_ID, 'input')
         print(f"🎤 Using: {device_info['name']} (ID: {MICROPHONE_DEVICE_ID})")
 
-        # Start the whisper worker thread
         worker = Thread(target=transcription_worker, daemon=True)
         worker.start()
 
@@ -86,7 +82,7 @@ def transcribe_microphone():
             callback=audio_callback
         ):
             print("🎤 Whisper is now listening to the microphone...")
-            stop_event.wait() # Keep the stream alive until stop_event is set
+            stop_event.wait() 
 
     except Exception as e:
         print(f"❌ Error in transcribe_microphone: {e}", file=sys.stderr)

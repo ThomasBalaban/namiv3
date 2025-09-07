@@ -1,101 +1,118 @@
-import sounddevice as sd
-import vosk
-import json
-import queue
-import sys
+import os
 import time
+from threading import Thread, Event
+from queue import Queue
+import sounddevice as sd
+from .desktop_speech_music_classifier import SpeechMusicClassifier
+from .desktop_audio_processor import AudioProcessor
+from faster_whisper import WhisperModel
 
-# --- Configuration ---
-# This should point to your Vosk model folder.
-# --- FIX: Changed to point to the larger, more accurate lgraph model ---
-VOSK_MODEL_PATH = "local_models/vosk-model-en-us-0.42-gigaspeech"
-SAMPLE_RATE = 16000
-BLOCK_SIZE = 4000  # How often to process audio (in samples)
+# --- FIX: Define stop_event at the module level so it can be imported ---
+stop_event = Event()
 
-# --- How often to force a transcription result, in seconds ---
-FORCE_RESULT_TIMEOUT = 4.0
+class SpeechMusicTranscriber:
+    def __init__(self, keep_files=False, auto_detect=True, transcript_manager=None):
+        try:
+            from nami.config import FS, MODEL_SIZE, DEVICE, SAVE_DIR, MAX_THREADS
+            self.FS = FS
+            self.SAVE_DIR = SAVE_DIR
+            self.MAX_THREADS = MAX_THREADS
+            self.MODEL_SIZE = "base.en" 
+            self.DEVICE = "cpu"
+            self.COMPUTE_TYPE = "int8"
+        except ImportError:
+            self.FS = 16000
+            self.SAVE_DIR = "audio_captures"
+            self.MAX_THREADS = 4
+            self.MODEL_SIZE = "base.en"
+            self.DEVICE = "cpu"
+            self.COMPUTE_TYPE = "int8"
+            print("⚠️ Using fallback config values for transcriber")
 
-# A queue to hold audio data between the callback and the main processing loop
-audio_queue = queue.Queue()
+        os.makedirs(self.SAVE_DIR, exist_ok=True)
+        
+        print(f"🎙️ Initializing faster-whisper for Desktop Audio: {self.MODEL_SIZE} on {self.DEVICE}")
+        try:
+            self.model = WhisperModel(self.MODEL_SIZE, device=self.DEVICE, compute_type=self.COMPUTE_TYPE)
+            print("✅ faster-whisper model for Desktop is ready.")
+        except Exception as e:
+            print(f"❌ Error loading model: {e}")
+            raise
+            
+        self.result_queue = Queue()
+        # --- FIX: Use the global stop_event ---
+        self.stop_event = stop_event 
+        self.saved_files = []
+        self.keep_files = keep_files
+        self.active_threads = 0
+        self.processing_lock = Event()
+        self.processing_lock.set()
+        self.last_processed = time.time()
+        
+        self.classifier = SpeechMusicClassifier()
+        self.auto_detect = auto_detect
+        self.transcript_manager = transcript_manager
+        self.audio_processor = AudioProcessor(self)
 
-def audio_callback(indata, frames, time, status):
-    """This is called by sounddevice for each new audio chunk."""
-    if status:
-        print(f"[VOSK STATUS] {status}", file=sys.stderr)
-    audio_queue.put(bytes(indata))
+    def output_worker(self):
+        """Processes and displays transcription results."""
+        while not self.stop_event.is_set():
+            try:
+                if not self.result_queue.empty():
+                    text, filename, audio_type, confidence = self.result_queue.get()
+                    
+                    if text:
+                        # Print in the required format
+                        print(f"[{audio_type.upper()} {confidence:.2f}] {text}", flush=True)
 
-def process_and_print_result(recognizer, is_final_result=False):
-    """
-    Helper function to process a Vosk result (either partial or final) and print it.
-    Using FinalResult() will reset the recognizer for a new utterance.
-    """
-    if is_final_result:
-        result_str = recognizer.FinalResult()
-    else:
-        result_str = recognizer.Result()
+                        # Clean up file after processing
+                        if not self.keep_files and filename and os.path.exists(filename):
+                            try: os.remove(filename)
+                            except Exception as e: print(f"Error removing file: {str(e)}")
+                    
+                    self.result_queue.task_done()
+                time.sleep(0.05)
+            except Exception as e:
+                print(f"Output worker error: {str(e)}")
+    
+    def run(self):
+        """Starts the audio stream and worker threads."""
+        from nami.config import CHUNK_DURATION, OVERLAP, FS
+        
+        print(f"Model: {self.MODEL_SIZE.upper()} | Device: {self.DEVICE.upper()}")
+        print(f"Chunk: {CHUNK_DURATION}s with {OVERLAP}s overlap")
 
-    result = json.loads(result_str)
-    text = result.get('text', '').strip()
-
-    if text:
-        confidence = 0.7  # Default confidence
-        words = result.get('result', [])
-        if words:
-            conf_sum = sum(w.get('conf', 0) for w in words)
-            confidence = conf_sum / len(words) if words else 0.7
-
-        # Print the final transcription for the hearing.py script to capture
-        print(f"[SPEECH {confidence:.2f}] {text}")
-        sys.stdout.flush()
-        return True
-    return False
+        output_thread = Thread(target=self.output_worker, daemon=True)
+        output_thread.start()
+        
+        try:
+            with sd.InputStream(
+                samplerate=FS,
+                channels=1,
+                callback=self.audio_processor.audio_callback,
+                blocksize=FS//10
+            ):
+                print("🎧 Listening to desktop audio...")
+                while not self.stop_event.is_set():
+                    time.sleep(0.1)
+                    
+        except KeyboardInterrupt:
+            print("\nReceived interrupt, stopping desktop transcriber...")
+        finally:
+            self.stop_event.set()
+            print("\nShutting down desktop transcriber...")
+            if not self.keep_files:
+                time.sleep(0.5)
+                for filename in self.saved_files:
+                     if os.path.exists(filename):
+                        try: os.remove(filename)
+                        except: pass
+            print("🖥️ Desktop transcription stopped.")
 
 def run_desktop_transcriber():
-    """
-    Initializes Vosk and starts transcribing the default audio output device.
-    """
+    """Main entry point function for hearing.py to call."""
     try:
-        print(f"🎙️ Initializing VOSK for Desktop Audio with model: {VOSK_MODEL_PATH}...")
-        model = vosk.Model(VOSK_MODEL_PATH)
-        recognizer = vosk.KaldiRecognizer(model, SAMPLE_RATE)
-        recognizer.SetWords(True)
-        print("✅ VOSK model loaded successfully.")
-
+        transcriber = SpeechMusicTranscriber()
+        transcriber.run()
     except Exception as e:
-        print(f"❌ Failed to initialize VOSK model. Make sure the path '{VOSK_MODEL_PATH}' is correct.")
-        print(f"Error: {e}")
-        return
-
-    try:
-        with sd.RawInputStream(samplerate=SAMPLE_RATE, blocksize=BLOCK_SIZE, device=None,
-                               dtype='int16', channels=1, callback=audio_callback):
-
-            print("🎧 VOSK is now listening to desktop audio...")
-            last_result_time = time.time()
-
-            while True:
-                try:
-                    # Use a timeout so we can check for silence
-                    data = audio_queue.get(timeout=1.0)
-
-                    # Feed audio to Vosk. If a natural pause is detected, it returns True.
-                    if recognizer.AcceptWaveform(data):
-                        if process_and_print_result(recognizer):
-                            last_result_time = time.time()
-
-                    # If it's been too long since the last result, force one.
-                    elif time.time() - last_result_time > FORCE_RESULT_TIMEOUT:
-                        if process_and_print_result(recognizer, is_final_result=True):
-                            last_result_time = time.time()
-
-                except queue.Empty:
-                    # If the queue is empty, it means there's silence.
-                    # This is a good time to flush any pending text.
-                    if process_and_print_result(recognizer, is_final_result=True):
-                         last_result_time = time.time()
-
-    except Exception as e:
-        print(f"❌ An error occurred with VOSK desktop transcription: {e}")
-
-if __name__ == '__main__':
-    run_desktop_transcriber()
+        print(f"A critical error occurred in the desktop transcriber: {e}")
