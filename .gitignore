@@ -17,3 +17,6 @@ training/nami-trained/special_tokens_map.json
 training/nami-trained/tokenizer_config.json
 training/nami-lora/**
 training/nami-lora-adapters/**
+nami/gcp_creds.json
+nami/gcp_creds2.json
+.DS_Store

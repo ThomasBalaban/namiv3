@@ -1,8 +1,9 @@
 import os
 import yaml
 import vertexai
-from vertexai.generative_models import GenerativeModel, HarmCategory, HarmBlockThreshold
-# --- MODIFIED: Removed service account imports ---
+import traceback
+from vertexai.generative_models import GenerativeModel, HarmCategory, HarmBlockThreshold, Part, Content
+from google.oauth2 import service_account
 from nami.config import TUNED_MODEL_ID
 from nami.context import get_formatted_context
 
@@ -11,8 +12,7 @@ BOTNAME = "peepingnami"
 class NamiBot:
     def __init__(self, config_path='model.yaml'):
         """
-        Initializes the NamiBot, configuring it to use the Vertex AI Gemini API
-        with Application Default Credentials.
+        Initializes the NamiBot using a service account key for authentication.
         """
         print("Initializing NamiBot with Vertex AI...")
         
@@ -20,20 +20,21 @@ class NamiBot:
             parts = TUNED_MODEL_ID.split('/')
             project_id = parts[1]
             location = parts[3]
+            print(f"Parsed project: {project_id}, location: {location}")
         except IndexError:
             raise ValueError("TUNED_MODEL_ID in config.py is not in the expected format.")
 
-        # --- MODIFIED: Use Application Default Credentials automatically ---
-        vertexai.init(project=project_id, location=location)
-        print("Vertex AI initialized successfully (using Application Default Credentials).")
+        creds_path = os.path.join(os.path.dirname(__file__), 'gcp_creds.json')
+        try:
+            credentials = service_account.Credentials.from_service_account_file(creds_path)
+            print("Successfully loaded credentials from service account file.")
+        except Exception as e:
+            print(f"FATAL ERROR: Could not load credentials from {creds_path}. {e}")
+            raise
 
-        base_dir = os.path.dirname(os.path.abspath(__file__))
-        self.config_path = os.path.join(base_dir, config_path)
+        vertexai.init(project=project_id, location=location, credentials=credentials)
+        print("Vertex AI initialized successfully.")
         
-        self.system_prompt = self._load_system_prompt()
-        self.history = []
-        self.max_history_length = 20
-
         self.safety_settings = {
             HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_ONLY_HIGH,
             HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_ONLY_HIGH,
@@ -41,61 +42,64 @@ class NamiBot:
             HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_ONLY_HIGH,
         }
         
-        # --- Use the full TUNED_MODEL_ID directly ---
+        print(f"Creating model with ID: {TUNED_MODEL_ID}")
         self.model = GenerativeModel(
             model_name=TUNED_MODEL_ID,
-            system_instruction=[self.system_prompt],
             safety_settings=self.safety_settings
         )
         
-        self.chat = self.model.start_chat(history=[])
+        # This will store our conversation history manually
+        self.history = []
+        self.max_history_length = 20 # 10 pairs of user/model messages
         
         print(f"NamiBot initialization complete. Using model: {TUNED_MODEL_ID}")
 
-    def _load_system_prompt(self):
-        """
-        Loads the system prompt from the YAML configuration file.
-        """
-        try:
-            with open(self.config_path, 'r', encoding='utf-8') as f:
-                prompt_text = f.read()
-                if prompt_text.startswith('SYSTEM """'):
-                    prompt_text = prompt_text[len('SYSTEM """'):].strip()
-                if prompt_text.endswith('"""'):
-                    prompt_text = prompt_text[:-3].strip()
-                print(f"Loaded system prompt from {self.config_path}")
-                return prompt_text
-        except FileNotFoundError:
-            print(f"Error: Config file not found at {self.config_path}")
-            return "You are Nami, a helpful assistant."
-        except Exception as e:
-            print(f"Error loading system prompt: {e}")
-            return ""
-
     def generate_response(self, prompt):
         """
-        Generates a response from the Vertex AI API using the provided prompt and context.
+        Generates a response using a stateless generate_content call,
+        including dynamic context and conversation history.
         """
         if not prompt:
             return "I can't respond to an empty prompt, silly."
 
+        # --- RE-ADD: Get the latest dynamic context ---
         dynamic_context = get_formatted_context()
-        full_prompt = f"{dynamic_context}\n{prompt}"
+        # Prepend the context to the user's prompt for this turn only.
+        full_prompt_with_context = f"{dynamic_context}\n\nUSER PROMPT: {prompt}"
         
-        print(f"\n--- Sending Prompt to Gemini --- \n{full_prompt}\n---------------------------------")
+        print(f"\n--- Sending Prompt to Gemini --- \n{full_prompt_with_context}\n---------------------------------")
         
         try:
-            response = self.chat.send_message(full_prompt)
+            # --- RE-ADD: Build the request with history ---
+            # The history and the new contextual prompt are combined into a single list.
+            contents_for_api = self.history + [
+                Content(role="user", parts=[Part.from_text(full_prompt_with_context)])
+            ]
+            
+            # Use the stateless `generate_content` method
+            response = self.model.generate_content(contents_for_api)
             nami_response = response.text
+
+            # --- RE-ADD: Manually update our history list ---
+            # Add the user's ORIGINAL prompt (without context)
+            self.history.append(Content(role="user", parts=[Part.from_text(prompt)]))
+            # Add the model's response
+            self.history.append(Content(role="model", parts=[Part.from_text(nami_response)]))
+
+            # Trim the history if it gets too long
+            if len(self.history) > self.max_history_length:
+                self.history = self.history[-self.max_history_length:]
 
             print(f"\n--- Received Nami's Response ---\n{nami_response}\n----------------------------------")
             return nami_response
         except Exception as e:
-            print(f"An error occurred while generating response: {e}")
+            print("\n" + "="*20 + " API ERROR " + "="*20)
+            print(f"An error occurred while generating response. Full error details:")
+            traceback.print_exc()
+            print("="*51 + "\n")
             return "Ugh, my circuits are sizzling. Give me a second and try that again."
 
-# --- Create a global instance for the rest of the application ---
-# --- MODIFIED: Removed GCP_CREDS_PATH check ---
+# Create a global instance
 if not TUNED_MODEL_ID:
     print("\n" + "="*50)
     print("FATAL ERROR: Please set TUNED_MODEL_ID in your config.py")

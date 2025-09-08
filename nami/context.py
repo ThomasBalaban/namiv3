@@ -53,32 +53,32 @@ def update_audio_context(text: str):
 def get_formatted_context():
     """Builds a formatted string of all current context for the LLM."""
     with context_lock:
-        vision_summary = "You haven't seen anything recently."
+        vision_summary = "Nothing new seen."
         if latest_vision_context:
             vision_texts = [text for _, text in latest_vision_context]
             vision_summary = "\n".join(vision_texts)
 
-        spoken_word_summary = "You haven't heard anyone speak recently."
+        spoken_word_summary = "Nothing new spoken."
         if latest_spoken_word_context:
             spoken_word_texts = [text for _, text in latest_spoken_word_context]
             spoken_word_summary = "\n".join(spoken_word_texts)
 
-        audio_summary = "You haven't heard anything recently."
+        audio_summary = "Nothing new heard."
         if latest_audio_context:
             audio_texts = [text for _, text in latest_audio_context]
             audio_summary = "\n".join(audio_texts)
         
-        twitch_chat_summary = "Nothing new in chat."
+        twitch_chat_summary = "Chat is quiet."
         if latest_twitch_chat_context:
             twitch_chat_summary = "\n".join(latest_twitch_chat_context)
 
+        # --- MODIFIED: Simplified context block ---
         context_prompt = (
-            f"SYSTEM: This is your internal monologue. Use it to inform your answer based on recent events.\n"
-            f"--- What you've recently seen (last {CONTEXT_TIME_WINDOW_SECONDS}s) ---\n{vision_summary}\n\n"
-            f"--- What you've recently heard spoken (last {CONTEXT_TIME_WINDOW_SECONDS}s) ---\n{spoken_word_summary}\n\n"
-            f"--- What you've recently heard (last {CONTEXT_TIME_WINDOW_SECONDS}s) ---\n{audio_summary}\n\n"
-            f"--- Recent messages in Twitch chat ---\n{twitch_chat_summary}\n"
-            f"--- END OF CONTEXT ---\n"
-            f"Now, respond to the user as peepingnami."
+            f"[Current Context]\n"
+            f"Vision (last {CONTEXT_TIME_WINDOW_SECONDS}s): {vision_summary}\n"
+            f"Spoken Words (last {CONTEXT_TIME_WINDOW_SECONDS}s): {spoken_word_summary}\n"
+            f"Desktop Audio (last {CONTEXT_TIME_WINDOW_SECONDS}s): {audio_summary}\n"
+            f"Twitch Chat: {twitch_chat_summary}\n"
+            f"[/Current Context]"
         )
         return context_prompt
