@@ -4,8 +4,8 @@ import queue
 from dataclasses import dataclass
 from enum import Enum, auto
 from typing import Dict, Optional, Any, Callable
-# --- MODIFIED: Import new context updater ---
-from ..bot_core import update_vision_context, update_spoken_word_context, update_audio_context, update_twitch_chat_context
+# --- MODIFIED: Import from the new context manager ---
+from ..context import update_vision_context, update_spoken_word_context, update_audio_context, update_twitch_chat_context
 
 # Define input source types
 class InputSource(Enum):
@@ -84,7 +84,7 @@ class PrioritySystem:
             
         item = InputItem(source=source, text=text, timestamp=time.time(), metadata=metadata, raw_data=raw_data)
         
-        # --- MODIFIED: Route inputs to their respective context updaters ---
+        # --- Route inputs to their respective context updaters ---
         if item.source == InputSource.DIRECT_MICROPHONE or item.source == InputSource.MICROPHONE:
             update_spoken_word_context(item.text)
             print(f"Context updated: {source.name} - {text[:30]}...")

@@ -1,136 +1,123 @@
-import requests
-import json
-import re
-import time
-from threading import Lock
-from nami.hard_filter import banned_words
+import os
+import yaml
+import google.generativeai as genai
+from google.generativeai.types import HarmCategory, HarmBlockThreshold
+from nami.config import GEMINI_API_KEY
+# --- MODIFIED: Import the new context getter ---
+from nami.context import get_formatted_context
 
-# Constants
-OLLAMA_API_URL = "http://localhost:11434/api/chat"
 BOTNAME = "peepingnami"
 
-CONTEXT_TIME_WINDOW_SECONDS = 30
-latest_vision_context = []
-latest_spoken_word_context = []
-latest_audio_context = []
-latest_twitch_chat_context = []
-# --- MODIFIED: Increased Twitch context length ---
-MAX_TWITCH_CONTEXT_LENGTH = 20
+class NamiBot:
+    def __init__(self, config_path='model.yaml'):
+        """
+        Initializes the NamiBot, configuring it to use the Gemini API.
+        """
+        print("Initializing NamiBot with Gemini API...")
+        self.config_path = config_path
+        self.system_prompt = self._load_system_prompt()
+        self.history = []
+        self.max_history_length = 20 # Keep last 10 user/assistant message pairs
 
-# Global state for conversation
-conversation_history = []
-MAX_CONVERSATION_LENGTH = 30
+        try:
+            # Configure the Gemini API key from config.py
+            if not GEMINI_API_KEY:
+                raise ValueError("GEMINI_API_KEY not found or is empty in config.py.")
+            genai.configure(api_key=GEMINI_API_KEY)
+            print("Gemini API configured successfully.")
+        except Exception as e:
+            print(f"Error configuring Gemini API: {e}")
+            raise
 
-context_lock = Lock()
+        self.safety_settings = {
+            HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+            HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+            HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+            HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+        }
+        
+        model_to_use = 'gemini-1.5-flash-latest' 
+        
+        self.model = genai.GenerativeModel(
+            model_name=model_to_use,
+            # The static system prompt is now the base personality
+            system_instruction=self.system_prompt,
+            safety_settings=self.safety_settings
+        )
+        
+        print(f"NamiBot initialization complete. Using model: {model_to_use}")
 
-def update_twitch_chat_context(username: str, message: str):
-    """Thread-safely updates the latest Twitch chat context."""
-    global latest_twitch_chat_context
-    with context_lock:
-        formatted_message = f"{username}: {message}"
-        latest_twitch_chat_context.append(formatted_message)
-        while len(latest_twitch_chat_context) > MAX_TWITCH_CONTEXT_LENGTH:
-            latest_twitch_chat_context.pop(0)
+    def _load_system_prompt(self):
+        """
+        Loads the system prompt from the YAML configuration file.
+        """
+        try:
+            with open(self.config_path, 'r', encoding='utf-8') as f:
+                # The YAML file is not standard, so we read the whole file as a string
+                prompt_text = f.read()
+                # Remove the 'SYSTEM """' and trailing '"""' if they exist
+                if prompt_text.startswith('SYSTEM """'):
+                    prompt_text = prompt_text[len('SYSTEM """'):].strip()
+                if prompt_text.endswith('"""'):
+                    prompt_text = prompt_text[:-3].strip()
+                print(f"Loaded system prompt from {self.config_path}")
+                return prompt_text
+        except FileNotFoundError:
+            print(f"Error: Config file not found at {self.config_path}")
+            return "You are Nami, a helpful assistant." # A generic fallback
+        except Exception as e:
+            print(f"Error loading system prompt: {e}")
+            return ""
 
-def update_vision_context(text: str):
-    """Thread-safely updates vision context, keeping entries within the time window."""
-    global latest_vision_context
-    with context_lock:
-        now = time.time()
-        latest_vision_context.append((now, text))
-        latest_vision_context = [(ts, txt) for ts, txt in latest_vision_context if now - ts <= CONTEXT_TIME_WINDOW_SECONDS]
+    def generate_response(self, prompt):
+        """
+        Generates a response from the Gemini API using the provided prompt and maintaining context.
+        """
+        if not prompt:
+            return "I can't respond to an empty prompt, silly."
 
-def update_spoken_word_context(text: str):
-    """Thread-safely updates spoken word context, keeping entries within the time window."""
-    global latest_spoken_word_context
-    with context_lock:
-        now = time.time()
-        latest_spoken_word_context.append((now, text))
-        latest_spoken_word_context = [(ts, txt) for ts, txt in latest_spoken_word_context if now - ts <= CONTEXT_TIME_WINDOW_SECONDS]
+        # Get the latest dynamic context
+        dynamic_context = get_formatted_context()
+        
+        # Construct the full prompt for this turn
+        full_prompt = f"{dynamic_context}\n{prompt}"
+        
+        print(f"\n--- Sending Prompt to Gemini --- \n{full_prompt}\n---------------------------------")
+        
+        try:
+            # We create a new chat session on each turn to inject the dynamic context.
+            # The model's `system_instruction` provides the base personality,
+            # and the history provides conversation memory.
+            chat = self.model.start_chat(history=self.history)
+            response = chat.send_message(full_prompt)
+            nami_response = response.text
+            
+            # Update history
+            self.history.append({'role': 'user', 'parts': [prompt]})
+            self.history.append({'role': 'model', 'parts': [nami_response]})
 
-def update_audio_context(text: str):
-    """Thread-safely updates audio context, keeping entries within the time window."""
-    global latest_audio_context
-    with context_lock:
-        now = time.time()
-        latest_audio_context.append((now, text))
-        latest_audio_context = [(ts, txt) for ts, txt in latest_audio_context if now - ts <= CONTEXT_TIME_WINDOW_SECONDS]
+            # Trim history to prevent it from growing too large
+            if len(self.history) > self.max_history_length:
+                self.history = self.history[-self.max_history_length:]
 
-def censor_text(text):
-    """Replace banned words with "*filtered*" """
-    pattern = re.compile("|".join(re.escape(word) for word in banned_words), flags=re.IGNORECASE)
-    return pattern.sub("*filtered*", text)
+            print(f"\n--- Received Nami's Response ---\n{nami_response}\n----------------------------------")
+            return nami_response
+        except Exception as e:
+            print(f"An error occurred while generating response: {e}")
+            return "Ugh, my circuits are sizzling. Give me a second and try that again."
 
-def add_message(role, content):
-    """Add a message to the conversation history, maintaining max length"""
-    global conversation_history
-    conversation_history.append({"role": role, "content": content})
-    while len(conversation_history) > MAX_CONVERSATION_LENGTH:
-        conversation_history.pop(0)
+# --- Create a global instance for the rest of the application ---
+if not GEMINI_API_KEY:
+    print("\n" + "="*50)
+    print("FATAL ERROR: Please set the GEMINI_API_KEY in your config.py file before running.")
+    print("="*50 + "\n")
+    nami_bot_instance = None
+else:
+    nami_bot_instance = NamiBot()
 
 def ask_question(question):
-    """Send a question to the Ollama API and return the bot's response."""
-    global conversation_history, latest_vision_context, latest_spoken_word_context, latest_audio_context, latest_twitch_chat_context
-
-    add_message("user", question)
-
-    try:
-        with context_lock:
-            vision_summary = "You haven't seen anything recently."
-            if latest_vision_context:
-                vision_texts = [text for timestamp, text in latest_vision_context]
-                vision_summary = "\n".join(vision_texts)
-
-            spoken_word_summary = "You haven't heard anyone speak recently."
-            if latest_spoken_word_context:
-                spoken_word_texts = [text for timestamp, text in latest_spoken_word_context]
-                spoken_word_summary = "\n".join(spoken_word_texts)
-
-            audio_summary = "You haven't heard anything recently."
-            if latest_audio_context:
-                audio_texts = [text for timestamp, text in latest_audio_context]
-                audio_summary = "\n".join(audio_texts)
-            
-            twitch_chat_summary = "Nothing new in chat."
-            if latest_twitch_chat_context:
-                twitch_chat_summary = "\n".join(latest_twitch_chat_context)
-
-            context_prompt = (
-                f"SYSTEM: This is your internal monologue. Use it to inform your answer based on recent events.\n"
-                f"--- What you've recently seen (last {CONTEXT_TIME_WINDOW_SECONDS}s) ---\n{vision_summary}\n\n"
-                f"--- What you've recently heard spoken (last {CONTEXT_TIME_WINDOW_SECONDS}s) ---\n{spoken_word_summary}\n\n"
-                f"--- What you've recently heard (last {CONTEXT_TIME_WINDOW_SECONDS}s) ---\n{audio_summary}\n\n"
-                f"--- Recent messages in Twitch chat ---\n{twitch_chat_summary}\n"
-                f"--- END OF CONTEXT ---\n"
-                f"Now, respond to the user as peepingnami."
-            )
-        
-        messages_with_context = [{"role": "system", "content": context_prompt}] + conversation_history
-
-        payload = {
-            "model": "peepingnami",
-            "messages": messages_with_context,
-            "stream": True,
-        }
-
-        response = requests.post(OLLAMA_API_URL, json=payload, stream=True)
-        if response.status_code != 200:
-            raise Exception(f"API request failed with status code {response.status_code}")
-
-        print("PeepingNami: ", end="", flush=True)
-        bot_reply = ""
-        for chunk in response.iter_lines():
-            if chunk:
-                chunk_data = json.loads(chunk.decode("utf-8"))
-                part = chunk_data.get("message", {}).get("content", "")
-                part = censor_text(part)
-                bot_reply += part
-                print(part, end="", flush=True)
-        print()
-
-        add_message("assistant", bot_reply)
-        return bot_reply
-
-    except Exception as error:
-        print(f"An error occurred: {error}")
-        return None
+    """Wrapper function to call the bot's generate_response method."""
+    if nami_bot_instance:
+        return nami_bot_instance.generate_response(question)
+    else:
+        return "NamiBot is not initialized. Please check your API key."
