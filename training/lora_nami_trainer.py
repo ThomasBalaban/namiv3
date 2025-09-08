@@ -2,6 +2,7 @@
 """
 LoRA Training for Nami on Gemma-3-27B
 Much faster and more memory efficient than full fine-tuning
+Updated for huihui-ai/gemma-3-27b-it-abliterated
 """
 
 import os
@@ -12,14 +13,16 @@ from transformers import (
     AutoTokenizer, 
     TrainingArguments, 
     Trainer,
-    DataCollatorForLanguageModeling
+    DataCollatorForLanguageModeling,
+    Gemma3ForConditionalGeneration,
+    AutoProcessor
 )
 from peft import LoraConfig, get_peft_model, TaskType
 from datasets import Dataset
 import psutil
 
 # Configuration
-MODEL_NAME = "google/gemma-2-27b-it"  # We'll use the base model for LoRA
+MODEL_NAME = "huihui-ai/gemma-3-27b-it-abliterated"
 OUTPUT_DIR = "./nami-lora"
 LORA_OUTPUT_DIR = "./nami-lora-adapters"
 
@@ -82,33 +85,57 @@ def create_dataset(data, tokenizer, max_length=1024):
     return tokenized_dataset
 
 def setup_lora_model(model_name):
-    """Setup model with LoRA configuration"""
+    """Setup model with LoRA configuration for Gemma3"""
     print(f"Loading model: {model_name}")
     print(f"Initial memory: {get_memory_usage()}")
     
-    # Load tokenizer
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    try:
+        # Try loading with Gemma3ForConditionalGeneration first
+        print("Attempting to load with Gemma3ForConditionalGeneration...")
+        
+        # Load processor for Gemma3
+        processor = AutoProcessor.from_pretrained(model_name)
+        tokenizer = processor.tokenizer if hasattr(processor, 'tokenizer') else processor
+        
+        # Load model with Gemma3 class
+        model = Gemma3ForConditionalGeneration.from_pretrained(
+            model_name,
+            torch_dtype=torch.float16,
+            device_map="auto",
+            low_cpu_mem_usage=True,
+            trust_remote_code=True,
+        )
+        
+    except Exception as e:
+        print(f"Gemma3ForConditionalGeneration failed: {e}")
+        print("Falling back to AutoModelForCausalLM...")
+        
+        # Fallback to standard approach
+        tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
+        if tokenizer.pad_token is None:
+            tokenizer.pad_token = tokenizer.eos_token
+        
+        model = AutoModelForCausalLM.from_pretrained(
+            model_name,
+            torch_dtype=torch.float16,
+            device_map="auto",
+            low_cpu_mem_usage=True,
+            trust_remote_code=True,
+        )
+    
+    # Ensure tokenizer has pad token
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
     
-    # Load base model (Mac compatible)
-    model = AutoModelForCausalLM.from_pretrained(
-        model_name,
-        torch_dtype=torch.float16,
-        device_map="auto",
-        low_cpu_mem_usage=True,
-        trust_remote_code=True,  # Sometimes needed for newer models
-    )
-    
     print(f"Base model loaded. Memory: {get_memory_usage()}")
     
-    # LoRA configuration
+    # LoRA configuration for Gemma3
     lora_config = LoraConfig(
         task_type=TaskType.CAUSAL_LM,
         r=64,                    # LoRA rank - higher = more parameters but better quality
         lora_alpha=128,          # LoRA scaling parameter
         lora_dropout=0.1,        # LoRA dropout
-        target_modules=[         # Gemma-specific target modules
+        target_modules=[         # Gemma3-specific target modules
             "q_proj",
             "k_proj", 
             "v_proj",
@@ -190,6 +217,7 @@ def train_lora():
         dataloader_pin_memory=False,
         gradient_checkpointing=False,    # Disabled - causing gradient issues
         fp16=False,                      # Disabled for Mac MPS compatibility
+        bf16=False,                      # Also disabled for compatibility
         
         # Evaluation and saving
         eval_strategy="steps",
@@ -241,8 +269,10 @@ def train_lora():
         print(f"2. LoRA adapters: {LORA_OUTPUT_DIR}")
         print("3. Load with:")
         print("   from peft import PeftModel")
+        print("   from transformers import AutoModelForCausalLM, AutoTokenizer")
         print(f"   model = AutoModelForCausalLM.from_pretrained('{MODEL_NAME}')")
         print(f"   model = PeftModel.from_pretrained(model, '{LORA_OUTPUT_DIR}')")
+        print(f"   tokenizer = AutoTokenizer.from_pretrained('{MODEL_NAME}')")
         
     except Exception as e:
         print(f"❌ Training error: {e}")

@@ -1,20 +1,22 @@
-import requests
-import json
+import torch
+from transformers import AutoModelForCausalLM, AutoTokenizer
+from peft import PeftModel
 import re
 import time
 from threading import Lock
 from nami.hard_filter import banned_words
 
-# Constants
-OLLAMA_API_URL = "http://localhost:11434/api/chat"
+# LoRA Configuration
+BASE_MODEL_NAME = "huihui-ai/gemma-3-27b-it-abliterated"
+LORA_ADAPTER_PATH = "../training//nami-lora-adapters"  # Path to your trained LoRA
 BOTNAME = "peepingnami"
 
+# Context settings
 CONTEXT_TIME_WINDOW_SECONDS = 30
 latest_vision_context = []
 latest_spoken_word_context = []
 latest_audio_context = []
 latest_twitch_chat_context = []
-# --- MODIFIED: Increased Twitch context length ---
 MAX_TWITCH_CONTEXT_LENGTH = 20
 
 # Global state for conversation
@@ -22,6 +24,35 @@ conversation_history = []
 MAX_CONVERSATION_LENGTH = 30
 
 context_lock = Lock()
+
+# LoRA Model - loaded once at startup
+model = None
+tokenizer = None
+
+def load_lora_model():
+    """Load the base model with LoRA adapters"""
+    global model, tokenizer
+    
+    print("Loading base model...")
+    # Load base model
+    base_model = AutoModelForCausalLM.from_pretrained(
+        BASE_MODEL_NAME,
+        torch_dtype=torch.float16,
+        device_map="auto",
+        low_cpu_mem_usage=True,
+        trust_remote_code=True,
+    )
+    
+    print("Loading LoRA adapters...")
+    # Load LoRA adapters
+    model = PeftModel.from_pretrained(base_model, LORA_ADAPTER_PATH)
+    
+    # Load tokenizer
+    tokenizer = AutoTokenizer.from_pretrained(BASE_MODEL_NAME, trust_remote_code=True)
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
+    
+    print("LoRA model loaded successfully!")
 
 def update_twitch_chat_context(username: str, message: str):
     """Thread-safely updates the latest Twitch chat context."""
@@ -68,8 +99,64 @@ def add_message(role, content):
     while len(conversation_history) > MAX_CONVERSATION_LENGTH:
         conversation_history.pop(0)
 
+def format_conversation_for_gemma(messages_with_context):
+    """Convert conversation to Gemma chat format"""
+    formatted_conversation = ""
+    
+    for message in messages_with_context:
+        role = message["role"]
+        content = message["content"]
+        
+        if role == "system":
+            # System messages can be added as user messages in Gemma
+            formatted_conversation += f"<start_of_turn>user\n{content}\n<end_of_turn>\n"
+        elif role == "user":
+            formatted_conversation += f"<start_of_turn>user\n{content}\n<end_of_turn>\n"
+        elif role == "assistant":
+            formatted_conversation += f"<start_of_turn>model\n{content}\n<end_of_turn>\n"
+    
+    # Add the start of the model's response
+    formatted_conversation += "<start_of_turn>model\n"
+    
+    return formatted_conversation
+
+def generate_response(prompt, max_new_tokens=500, temperature=0.7, top_p=0.9):
+    """Generate response using the LoRA model"""
+    global model, tokenizer
+    
+    if model is None or tokenizer is None:
+        raise Exception("Model not loaded. Call load_lora_model() first.")
+    
+    # Tokenize input
+    inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=2048)
+    
+    # Move to same device as model
+    inputs = {k: v.to(model.device) for k, v in inputs.items()}
+    
+    # Generate response
+    with torch.no_grad():
+        outputs = model.generate(
+            **inputs,
+            max_new_tokens=max_new_tokens,
+            temperature=temperature,
+            top_p=top_p,
+            do_sample=True,
+            pad_token_id=tokenizer.eos_token_id,
+            eos_token_id=tokenizer.eos_token_id,
+        )
+    
+    # Decode only the new tokens
+    response = tokenizer.decode(outputs[0][inputs['input_ids'].shape[1]:], skip_special_tokens=True)
+    
+    # Clean up the response
+    response = response.strip()
+    if response.endswith("<end_of_turn>"):
+        response = response[:-12].strip()
+    
+    return response
+
 def ask_question(question):
-    """Send a question to the Ollama API and return the bot's response."""
+    """Send a question to the LoRA model and return the bot's response."""
     global conversation_history, latest_vision_context, latest_spoken_word_context, latest_audio_context, latest_twitch_chat_context
 
     add_message("user", question)
@@ -107,26 +194,15 @@ def ask_question(question):
         
         messages_with_context = [{"role": "system", "content": context_prompt}] + conversation_history
 
-        payload = {
-            "model": "peepingnami",
-            "messages": messages_with_context,
-            "stream": True,
-        }
-
-        response = requests.post(OLLAMA_API_URL, json=payload, stream=True)
-        if response.status_code != 200:
-            raise Exception(f"API request failed with status code {response.status_code}")
-
+        # Format for Gemma
+        formatted_prompt = format_conversation_for_gemma(messages_with_context)
+        
+        # Generate response
         print("PeepingNami: ", end="", flush=True)
-        bot_reply = ""
-        for chunk in response.iter_lines():
-            if chunk:
-                chunk_data = json.loads(chunk.decode("utf-8"))
-                part = chunk_data.get("message", {}).get("content", "")
-                part = censor_text(part)
-                bot_reply += part
-                print(part, end="", flush=True)
-        print()
+        bot_reply = generate_response(formatted_prompt)
+        bot_reply = censor_text(bot_reply)
+        
+        print(bot_reply)
 
         add_message("assistant", bot_reply)
         return bot_reply
@@ -134,3 +210,14 @@ def ask_question(question):
     except Exception as error:
         print(f"An error occurred: {error}")
         return None
+
+# Initialize the model when the module is imported
+if __name__ == "__main__":
+    # For testing
+    load_lora_model()
+    
+    while True:
+        user_input = input("You: ")
+        if user_input.lower() in ['quit', 'exit']:
+            break
+        response = ask_question(user_input)
