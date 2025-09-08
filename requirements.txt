@@ -29,3 +29,4 @@ mlx-lm>=0.18.0
 datasets>=2.15.0
 transformers>=4.35.0
 accelerate>=0.25.0
+google-generativeai
