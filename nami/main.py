@@ -162,8 +162,8 @@ def main():
         input_funnel = InputFunnel(
             bot_callback=ask_question,
             response_handler=funnel_response_handler.handle_response,
-            # --- MODIFIED: Reduced prompt interval for better responsiveness ---
-            min_prompt_interval=0.8
+            # --- Changed back as requested ---
+            min_prompt_interval=2
         )
         global_input_funnel = input_funnel
 
@@ -177,7 +177,7 @@ def main():
     if use_funnel:
         from nami.input_systems.input_handlers import set_input_funnel
         set_input_funnel(input_funnel)
-        print("NOTICE: Desktop audio and vision inputs are DISABLED by default")
+        print("NOTICE: Desktop audio and vision inputs are now context-only by default")
 
     start_hearing_system(callback=hearing_line_processor)
     start_vision_client()

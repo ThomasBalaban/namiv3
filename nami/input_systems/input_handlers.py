@@ -37,21 +37,9 @@ async def handle_twitch_message(msg, botname="peepingnami"):
         'relevance': 0.5,
     }
 
-    if is_mention and input_funnel:
-        formatted_message = f"{username} in chat: {user_message}"
-
-        input_funnel.add_input(
-            content=formatted_message,
-            priority=0.2,
-            source_info={
-                'source': 'TWITCH_MENTION',
-                'username': username,
-                'is_direct': True,
-                # --- FIX: Changed this from True to False ---
-                'use_tts': False
-            }
-        )
-    elif priority_system:
+    # All Twitch messages, mentions or not, now go through the priority system.
+    # The priority system will correctly identify mentions as high-priority and chat as low-priority context.
+    if priority_system:
         if is_mention:
             priority_system.add_input(
                 InputSource.TWITCH_MENTION,
@@ -68,12 +56,11 @@ async def handle_twitch_message(msg, botname="peepingnami"):
 # ====== HEARING SYSTEM HANDLER ======
 def handle_microphone_input(transcription, confidence=0.7):
     """Process input specifically from microphone"""
-    global priority_system, input_funnel
+    global priority_system
 
     if not transcription or len(transcription) < 2:
         return
 
-    # --- Route to the correct UI panel ---
     emit_spoken_word_context(transcription)
 
     is_direct = 'nami' in transcription.lower() or 'peepingnami' in transcription.lower()
@@ -86,20 +73,7 @@ def handle_microphone_input(transcription, confidence=0.7):
         'urgency': 0.5 if is_direct else 0.2
     }
 
-    if is_direct and input_funnel:
-        formatted_input = f"You said: {transcription}"
-
-        input_funnel.add_input(
-            content=formatted_input,
-            priority=0.1,
-            source_info={
-                'source': 'DIRECT_MICROPHONE',
-                'confidence': confidence,
-                'is_direct': True,
-                'use_tts': True
-            }
-        )
-    elif priority_system:
+    if priority_system:
         if is_direct:
             priority_system.add_input(
                 InputSource.DIRECT_MICROPHONE,
@@ -121,16 +95,11 @@ def handle_desktop_audio_input(transcription, audio_type, confidence):
     if not transcription or len(transcription) < 2:
         return
 
-    # --- Route to the correct UI panel ---
     emit_audio_context(f"[{audio_type.upper()}] {transcription}")
 
-    if not ENABLE_DESKTOP_AUDIO:
+    if not ENABLE_DESKTOP_AUDIO or not priority_system:
         return
 
-    if priority_system is None:
-        return
-
-    # Check if the transcription contains a direct mention of the bot's name
     is_direct = 'nami' in transcription.lower() or 'peepingnami' in transcription.lower()
 
     metadata = {
@@ -138,14 +107,14 @@ def handle_desktop_audio_input(transcription, audio_type, confidence):
         'confidence': confidence,
         'is_direct': is_direct,
         'relevance': confidence * 0.8,
-        'urgency': 0.5 if is_direct else 0.2  # Higher urgency for direct mentions
+        'urgency': 0.5 if is_direct else 0.2
     }
-
-    # If it's a direct mention, treat it like a direct microphone input to trigger a response.
-    # Otherwise, treat it as ambient audio for context only.
+    
+    # If a direct mention is heard in desktop audio, treat it as a prompt.
+    # Otherwise, it's just ambient context.
     if is_direct:
         priority_system.add_input(
-            InputSource.DIRECT_MICROPHONE,  # Using DIRECT_MICROPHONE to ensure it's processed for a reply
+            InputSource.DIRECT_MICROPHONE,
             transcription,
             metadata
         )
@@ -199,10 +168,13 @@ def process_hearing_line(line):
 
 # ====== VISION SYSTEM HANDLER ======
 def handle_vision_input(analysis_text, confidence, metadata=None):
-    """Process input from the vision system"""
-    global priority_system, input_funnel, ENABLE_VISION
+    """
+    Process input from the vision system.
+    FIX: This now ONLY sends data to the priority system for context, it never calls the funnel directly.
+    """
+    global priority_system, ENABLE_VISION
 
-    if not ENABLE_VISION:
+    if not ENABLE_VISION or not priority_system:
         return
 
     if not analysis_text or len(analysis_text) < 2:
@@ -223,28 +195,13 @@ def handle_vision_input(analysis_text, confidence, metadata=None):
         'urgency': 0.3 if is_summary else 0.2
     })
 
-    if (is_summary or confidence > 0.8) and input_funnel:
-        if is_summary:
-            formatted_input = f"You're seeing: {analysis_text}"
-        else:
-            formatted_input = f"You notice: {analysis_text}"
-
-        input_funnel.add_input(
-            content=formatted_input,
-            priority=0.3 if is_summary else 0.5,
-            source_info={
-                'source': 'VISUAL_CHANGE',
-                'is_summary': is_summary,
-                'confidence': confidence,
-                'use_tts': False
-            }
-        )
-    elif priority_system:
-        priority_system.add_input(
-            InputSource.VISUAL_CHANGE,
-            analysis_text,
-            metadata
-        )
+    # All vision input now goes through the priority system, which will correctly
+    # score it as low-priority context and not trigger a response.
+    priority_system.add_input(
+        InputSource.VISUAL_CHANGE,
+        analysis_text,
+        metadata
+    )
 
 def process_vision_line(line):
     """Process a line of output from the vision system"""
@@ -291,30 +248,20 @@ def process_vision_line(line):
 # ====== CONSOLE INPUT HANDLER ======
 def handle_console_input(text):
     """Process direct console input"""
-    global priority_system, input_funnel
+    global priority_system
 
-    if not text.strip():
+    if not text.strip() or not priority_system:
         return
 
-    if input_funnel:
-        input_funnel.add_input(
-            content=f"Console input: {text}",
-            priority=0.0,
-            source_info={
-                'source': 'CONSOLE',
-                'is_direct': True,
-                'use_tts': False
-            }
-        )
-    elif priority_system:
-        priority_system.add_input(
-            InputSource.DIRECT_MICROPHONE,
-            text,
-            {
-                'source_type': 'CONSOLE',
-                'confidence': 1.0,
-                'is_direct': True,
-                'relevance': 0.9,
-                'urgency': 0.6
-            }
-        )
+    # Console input is always a direct prompt
+    priority_system.add_input(
+        InputSource.DIRECT_MICROPHONE, # Treated as a direct prompt
+        text,
+        {
+            'source_type': 'CONSOLE',
+            'confidence': 1.0,
+            'is_direct': True,
+            'relevance': 0.9,
+            'urgency': 0.6
+        }
+    )

@@ -10,12 +10,16 @@ from nami.context import get_formatted_context
 BOTNAME = "peepingnami"
 
 class NamiBot:
-    def __init__(self, config_path='model.yaml'):
+    def __init__(self, config_path='nami/model_in_progress.yaml'):
         """
         Initializes the NamiBot using a service account key for authentication.
         """
         print("Initializing NamiBot with Vertex AI...")
-        
+        self.config_path = config_path
+
+        # FIX: Load the system prompt BEFORE using it
+        self.system_prompt = self._load_system_prompt()
+
         try:
             parts = TUNED_MODEL_ID.split('/')
             project_id = parts[1]
@@ -34,25 +38,49 @@ class NamiBot:
 
         vertexai.init(project=project_id, location=location, credentials=credentials)
         print("Vertex AI initialized successfully.")
-        
+
+        # FIX: Set safety settings to BLOCK_NONE to be less restrictive
         self.safety_settings = {
-            HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_ONLY_HIGH,
-            HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_ONLY_HIGH,
-            HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_ONLY_HIGH,
-            HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+            HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
+            HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
+            HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
+            HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
         }
-        
+
         print(f"Creating model with ID: {TUNED_MODEL_ID}")
+        # FIX: Add system_instruction to the model initialization
         self.model = GenerativeModel(
             model_name=TUNED_MODEL_ID,
+            system_instruction=self.system_prompt,
             safety_settings=self.safety_settings
         )
-        
+
         # This will store our conversation history manually
         self.history = []
-        self.max_history_length = 20 # 10 pairs of user/model messages
-        
+        self.max_history_length = 20  # 10 pairs of user/model messages
+
         print(f"NamiBot initialization complete. Using model: {TUNED_MODEL_ID}")
+
+    # ADDED: This method was missing
+    def _load_system_prompt(self):
+        """
+        Loads the system prompt from the YAML configuration file.
+        """
+        try:
+            with open(self.config_path, 'r', encoding='utf-8') as f:
+                config = yaml.safe_load(f)
+                prompt = config.get('SYSTEM', '')
+                if not prompt:
+                     # Fallback for the other yaml file format
+                     prompt = config
+                print(f"Loaded system prompt from {self.config_path}")
+                return prompt
+        except FileNotFoundError:
+            print(f"Error: Config file not found at {self.config_path}")
+            return "You are Nami, a helpful assistant."
+        except Exception as e:
+            print(f"Error loading system prompt: {e}")
+            return ""
 
     def generate_response(self, prompt):
         """
@@ -62,31 +90,22 @@ class NamiBot:
         if not prompt:
             return "I can't respond to an empty prompt, silly."
 
-        # --- RE-ADD: Get the latest dynamic context ---
         dynamic_context = get_formatted_context()
-        # Prepend the context to the user's prompt for this turn only.
         full_prompt_with_context = f"{dynamic_context}\n\nUSER PROMPT: {prompt}"
-        
+
         print(f"\n--- Sending Prompt to Gemini --- \n{full_prompt_with_context}\n---------------------------------")
-        
+
         try:
-            # --- RE-ADD: Build the request with history ---
-            # The history and the new contextual prompt are combined into a single list.
             contents_for_api = self.history + [
                 Content(role="user", parts=[Part.from_text(full_prompt_with_context)])
             ]
-            
-            # Use the stateless `generate_content` method
+
             response = self.model.generate_content(contents_for_api)
             nami_response = response.text
 
-            # --- RE-ADD: Manually update our history list ---
-            # Add the user's ORIGINAL prompt (without context)
             self.history.append(Content(role="user", parts=[Part.from_text(prompt)]))
-            # Add the model's response
             self.history.append(Content(role="model", parts=[Part.from_text(nami_response)]))
 
-            # Trim the history if it gets too long
             if len(self.history) > self.max_history_length:
                 self.history = self.history[-self.max_history_length:]
 
