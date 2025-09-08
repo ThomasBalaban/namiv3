@@ -1,9 +1,9 @@
 import os
 import yaml
-import google.generativeai as genai
-from google.generativeai.types import HarmCategory, HarmBlockThreshold
-from nami.config import GEMINI_API_KEY
-# --- MODIFIED: Import the new context getter ---
+import vertexai
+from vertexai.generative_models import GenerativeModel, HarmCategory, HarmBlockThreshold
+# --- MODIFIED: Removed service account imports ---
+from nami.config import TUNED_MODEL_ID
 from nami.context import get_formatted_context
 
 BOTNAME = "peepingnami"
@@ -11,23 +11,28 @@ BOTNAME = "peepingnami"
 class NamiBot:
     def __init__(self, config_path='model.yaml'):
         """
-        Initializes the NamiBot, configuring it to use the Gemini API.
+        Initializes the NamiBot, configuring it to use the Vertex AI Gemini API
+        with Application Default Credentials.
         """
-        print("Initializing NamiBot with Gemini API...")
-        self.config_path = config_path
+        print("Initializing NamiBot with Vertex AI...")
+        
+        try:
+            parts = TUNED_MODEL_ID.split('/')
+            project_id = parts[1]
+            location = parts[3]
+        except IndexError:
+            raise ValueError("TUNED_MODEL_ID in config.py is not in the expected format.")
+
+        # --- MODIFIED: Use Application Default Credentials automatically ---
+        vertexai.init(project=project_id, location=location)
+        print("Vertex AI initialized successfully (using Application Default Credentials).")
+
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        self.config_path = os.path.join(base_dir, config_path)
+        
         self.system_prompt = self._load_system_prompt()
         self.history = []
-        self.max_history_length = 20 # Keep last 10 user/assistant message pairs
-
-        try:
-            # Configure the Gemini API key from config.py
-            if not GEMINI_API_KEY:
-                raise ValueError("GEMINI_API_KEY not found or is empty in config.py.")
-            genai.configure(api_key=GEMINI_API_KEY)
-            print("Gemini API configured successfully.")
-        except Exception as e:
-            print(f"Error configuring Gemini API: {e}")
-            raise
+        self.max_history_length = 20
 
         self.safety_settings = {
             HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_ONLY_HIGH,
@@ -36,16 +41,16 @@ class NamiBot:
             HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_ONLY_HIGH,
         }
         
-        model_to_use = 'gemini-1.5-flash-latest' 
-        
-        self.model = genai.GenerativeModel(
-            model_name=model_to_use,
-            # The static system prompt is now the base personality
-            system_instruction=self.system_prompt,
+        # --- Use the full TUNED_MODEL_ID directly ---
+        self.model = GenerativeModel(
+            model_name=TUNED_MODEL_ID,
+            system_instruction=[self.system_prompt],
             safety_settings=self.safety_settings
         )
         
-        print(f"NamiBot initialization complete. Using model: {model_to_use}")
+        self.chat = self.model.start_chat(history=[])
+        
+        print(f"NamiBot initialization complete. Using model: {TUNED_MODEL_ID}")
 
     def _load_system_prompt(self):
         """
@@ -53,9 +58,7 @@ class NamiBot:
         """
         try:
             with open(self.config_path, 'r', encoding='utf-8') as f:
-                # The YAML file is not standard, so we read the whole file as a string
                 prompt_text = f.read()
-                # Remove the 'SYSTEM """' and trailing '"""' if they exist
                 if prompt_text.startswith('SYSTEM """'):
                     prompt_text = prompt_text[len('SYSTEM """'):].strip()
                 if prompt_text.endswith('"""'):
@@ -64,41 +67,26 @@ class NamiBot:
                 return prompt_text
         except FileNotFoundError:
             print(f"Error: Config file not found at {self.config_path}")
-            return "You are Nami, a helpful assistant." # A generic fallback
+            return "You are Nami, a helpful assistant."
         except Exception as e:
             print(f"Error loading system prompt: {e}")
             return ""
 
     def generate_response(self, prompt):
         """
-        Generates a response from the Gemini API using the provided prompt and maintaining context.
+        Generates a response from the Vertex AI API using the provided prompt and context.
         """
         if not prompt:
             return "I can't respond to an empty prompt, silly."
 
-        # Get the latest dynamic context
         dynamic_context = get_formatted_context()
-        
-        # Construct the full prompt for this turn
         full_prompt = f"{dynamic_context}\n{prompt}"
         
         print(f"\n--- Sending Prompt to Gemini --- \n{full_prompt}\n---------------------------------")
         
         try:
-            # We create a new chat session on each turn to inject the dynamic context.
-            # The model's `system_instruction` provides the base personality,
-            # and the history provides conversation memory.
-            chat = self.model.start_chat(history=self.history)
-            response = chat.send_message(full_prompt)
+            response = self.chat.send_message(full_prompt)
             nami_response = response.text
-            
-            # Update history
-            self.history.append({'role': 'user', 'parts': [prompt]})
-            self.history.append({'role': 'model', 'parts': [nami_response]})
-
-            # Trim history to prevent it from growing too large
-            if len(self.history) > self.max_history_length:
-                self.history = self.history[-self.max_history_length:]
 
             print(f"\n--- Received Nami's Response ---\n{nami_response}\n----------------------------------")
             return nami_response
@@ -107,9 +95,10 @@ class NamiBot:
             return "Ugh, my circuits are sizzling. Give me a second and try that again."
 
 # --- Create a global instance for the rest of the application ---
-if not GEMINI_API_KEY:
+# --- MODIFIED: Removed GCP_CREDS_PATH check ---
+if not TUNED_MODEL_ID:
     print("\n" + "="*50)
-    print("FATAL ERROR: Please set the GEMINI_API_KEY in your config.py file before running.")
+    print("FATAL ERROR: Please set TUNED_MODEL_ID in your config.py")
     print("="*50 + "\n")
     nami_bot_instance = None
 else:
@@ -120,4 +109,4 @@ def ask_question(question):
     if nami_bot_instance:
         return nami_bot_instance.generate_response(question)
     else:
-        return "NamiBot is not initialized. Please check your API key."
+        return "NamiBot is not initialized. Please check your config."
