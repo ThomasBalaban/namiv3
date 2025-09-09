@@ -140,7 +140,6 @@ class MicrophoneTranscriber:
                 "beam_size": 5,
                 "language": "en",
                 "condition_on_previous_text": False,
-                "initial_prompt": "Nami PeepingNami"
             }
             segments, info = self.model.transcribe(chunk, **params)
             text = "".join(seg.text for seg in segments).strip()
