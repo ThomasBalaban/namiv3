@@ -5,5 +5,5 @@ Welcome to the PeepingNami Codebase. This is a AI project that can see and hear 
 ## Here is a checklist for code updates
 - I prefer full code files
 - Make sure the UI is ALWAYS able to display the full context of prompts
-
-
+- I prefer to test it live and not make dedicated test files
+- This will always be ran on my Mac M4, no where else
