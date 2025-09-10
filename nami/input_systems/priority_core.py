@@ -94,7 +94,8 @@ class PrioritySystem:
         elif item.source == InputSource.VISUAL_CHANGE:
             update_vision_context(item.text)
             print(f"Context updated: {source.name} - {text[:30]}...")
-        elif item.source == InputSource.TWITCH_CHAT:
+        # --- FIX: Added TWITCH_MENTION to this condition ---
+        elif item.source == InputSource.TWITCH_CHAT or item.source == InputSource.TWITCH_MENTION:
             username = item.metadata.get('username', 'Someone')
             update_twitch_chat_context(username, item.text)
             print(f"Twitch context updated: {username}: {text[:30]}...")
