@@ -174,10 +174,17 @@
         });
 
         socket.on('bot_reply', (data) => {
+            // Sanitize the data from the server
+            const sanitizedReply = sanitizeHTML(data.reply);
+            const sanitizedPrompt = sanitizeHTML(data.prompt || 'No prompt data available.'); // Use prompt from data
+
+            // Create the HTML with the tooltip
             const replyHTML = `
-                <div class="log-line nami-reply">
-                    <strong>Nami:</strong> ${sanitizeHTML(data.reply)}
+                <div class="log-line nami-reply" title="${sanitizedPrompt}">
+                    <strong>Nami:</strong> ${sanitizedReply}
                 </div>`;
+            
+            // Add the new reply to the UI
             appendLog(namiReplies, replyHTML, 50);
         });
 

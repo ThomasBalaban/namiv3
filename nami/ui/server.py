@@ -65,9 +65,11 @@ def emit_twitch_message(username, message):
     """Emit incoming Twitch messages from any thread."""
     _emit_threadsafe('twitch_message', {'username': username, 'message': message})
 
-def emit_bot_reply(reply):
+def emit_bot_reply(reply, prompt=""):
     """Emit bot's replies from any thread."""
-    _emit_threadsafe('bot_reply', {'reply': reply})
+    global sio
+    print(f"[UI EMIT] Attempting to send bot_reply to UI: {reply[:50]}...")
+    _emit_threadsafe('bot_reply', {'reply': reply, 'prompt': prompt})
 
 
 # --- Server Control ---

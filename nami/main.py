@@ -85,7 +85,7 @@ class FunnelResponseHandler:
         self.generation_func = generation_func
         self.playback_func = playback_func
 
-    def handle_response(self, response, source_info):
+    def handle_response(self, response, prompt_details, source_info):
         if not response:
             print("Empty response received")
             return
@@ -93,7 +93,7 @@ class FunnelResponseHandler:
         print(f"\n[BOT] {response}")
         print("You: ", end="", flush=True)
         
-        emit_bot_reply(response)
+        emit_bot_reply(response, prompt_details)
 
         # --- MODIFIED: Send response to Twitch for mic input as well ---
         try:

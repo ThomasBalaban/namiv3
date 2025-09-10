@@ -117,14 +117,14 @@ class InputFunnel:
                     # Get response from bot
                     self.last_prompt_time = time.time()
                     if self.bot_callback and not self.shutdown_requested:
-                        response = self.bot_callback(item.content)
+                        response, prompt_details = self.bot_callback(item.content)
                     else:
                         print("No bot callback configured or shutdown requested")
                         response = "No response (bot callback not configured or shutdown in progress)"
                     
                     # Handle the response
                     if not self.shutdown_requested:
-                        self._handle_response(response, item)
+                        self._handle_response(response, prompt_details, item)
                 except Exception as e:
                     print(f"Error getting bot response: {e}")
                 
@@ -137,7 +137,7 @@ class InputFunnel:
         
         print("Funnel processing thread exited due to shutdown request")
         
-    def _handle_response(self, response, item):
+    def _handle_response(self, response, prompt_details, item):
         """Handle a response from the bot"""
         if not response:
             print("Empty response from bot")
@@ -149,7 +149,7 @@ class InputFunnel:
         # Use the global response handler if provided
         if self.response_handler and not self.shutdown_requested:
             try:
-                self.response_handler(response, item.source_info)
+                self.response_handler(response, prompt_details, item.source_info)
             except Exception as e:
                 print(f"Error in response handler: {e}")
         

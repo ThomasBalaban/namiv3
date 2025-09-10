@@ -76,10 +76,11 @@ def init_priority_system(
 def _format_input_for_funnel(item: InputItem) -> str:
     """Format the input appropriately based on source"""
     if item.source == InputSource.DIRECT_MICROPHONE:
-        return f"You said: {item.text}"
+        return f"PeepingOtter said: {item.text}"
     elif item.source == InputSource.TWITCH_MENTION:
         username = item.metadata.get('username', 'Someone')
-        return f"{username} in chat: {item.text}"
+        # Use a simple "Username: message" format
+        return f"{username}: {item.text}"
     # Ambient formatting is removed as they no longer generate replies this way
     else:
         return item.text

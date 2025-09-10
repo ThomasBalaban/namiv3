@@ -110,7 +110,7 @@ class NamiBot:
                 self.history = self.history[-self.max_history_length:]
 
             print(f"\n--- Received Nami's Response ---\n{nami_response}\n----------------------------------")
-            return nami_response
+            return nami_response, full_prompt_with_context
         except Exception as e:
             print("\n" + "="*20 + " API ERROR " + "="*20)
             print(f"An error occurred while generating response. Full error details:")
