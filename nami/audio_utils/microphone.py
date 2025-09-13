@@ -6,6 +6,7 @@ import sounddevice as sd
 import time
 import soundfile as sf
 import re
+import traceback
 from faster_whisper import WhisperModel
 from ..config import MICROPHONE_DEVICE_ID, FS, CHUNK_DURATION, OVERLAP, MAX_THREADS, SAVE_DIR
 from queue import Queue, Empty
@@ -85,6 +86,15 @@ class MicrophoneTranscriber:
 
     def audio_callback(self, indata, frames, timestamp, status):
         """Analyzes audio for speech, buffers it, and sends complete utterances for transcription."""
+        # --- ADDED: Enhanced Error Reporting ---
+        if status:
+            print(f"[MIC-ERROR] Audio callback status: {status}", file=sys.stderr)
+            # If we get an input overflow, we should probably clear the buffer to recover.
+            if status.input_overflow:
+                print("[MIC-WARN] Input overflow detected, clearing buffer.", file=sys.stderr)
+                with self.buffer_lock:
+                    self.speech_buffer = np.array([], dtype=np.float32)
+
         if self.stop_event.is_set():
             return
 
@@ -150,7 +160,9 @@ class MicrophoneTranscriber:
                 if not self.keep_files and filename and os.path.exists(filename):
                     os.remove(filename)
         except Exception as e:
-            print(f"Microphone transcription error: {str(e)}")
+            # --- ADDED: More Detailed Error Logging ---
+            print(f"[MIC-ERROR] Transcription thread failed: {str(e)}", file=sys.stderr)
+            traceback.print_exc() # Print the full traceback for debugging
             if not self.keep_files and filename and os.path.exists(filename):
                 try:
                     os.remove(filename)
@@ -217,6 +229,13 @@ class MicrophoneTranscriber:
 
         except KeyboardInterrupt:
             print("\nReceived interrupt, stopping microphone transcriber...")
+        # --- ADDED: Catching specific sounddevice errors ---
+        except sd.PortAudioError as e:
+            print(f"\n[MIC-FATAL] A PortAudio error occurred: {e}", file=sys.stderr)
+            print("This could be due to a disconnected device or a driver issue.", file=sys.stderr)
+        except Exception as e:
+            print(f"\n[MIC-FATAL] An unexpected error occurred in the run loop: {e}", file=sys.stderr)
+            traceback.print_exc()
         finally:
             self.stop_event.set()
             print("\nShutting down microphone transcriber...")
