@@ -22,7 +22,7 @@ play_sound_effect_func = FunctionDeclaration(
                 "description": "The name of the sound effect to play"
             },
             "context": {
-                "type": "string", 
+                "type": "string",
                 "description": "Why you're playing this sound effect (optional)"
             }
         },
@@ -72,12 +72,11 @@ class NamiBot:
         }
 
         print(f"Creating model with ID: {TUNED_MODEL_ID}")
-        # FIX: Add system_instruction and tools to the model initialization
+        # NEW LOGIC: Remove the tools argument entirely.
         self.model = GenerativeModel(
             model_name=TUNED_MODEL_ID,
             system_instruction=self.system_prompt,
-            safety_settings=self.safety_settings,
-            tools=[sound_effects_tool]  # Add sound effects tool
+            safety_settings=self.safety_settings
         )
 
         # This will store our conversation history manually
@@ -196,16 +195,8 @@ class NamiBot:
 
             response = self.model.generate_content(contents_for_api)
             
-            # Handle function calls if present
-            result = self._handle_function_calls(response)
-            
-            if result and result['function_calls']:
-                # Model made function calls
-                nami_response = result['text'] if result['text'] else "🎵 *plays sound effect*"
-                print(f"📞 Function calls made: {result['function_calls']}")
-            else:
-                # Regular text response
-                nami_response = response.text
+            # Since the tool is removed, we just get the text directly.
+            nami_response = response.text
 
             self.history.append(Content(role="user", parts=[Part.from_text(prompt)]))
             self.history.append(Content(role="model", parts=[Part.from_text(nami_response)]))

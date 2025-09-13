@@ -26,12 +26,6 @@ SOUND_EFFECT_MAP = {
 def process_sound_effects(text):
     """
     Process text to convert *EFFECTNAME* markers into SSML audio tags.
-    
-    Args:
-        text (str): Input text with sound effect markers like *AIRHORN*
-        
-    Returns:
-        str: Text with SSML audio tags replacing markers
     """
     def replace_effect(match):
         effect_name = match.group(1).lower()

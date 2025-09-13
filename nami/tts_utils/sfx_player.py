@@ -1,67 +1,167 @@
-# nami/tts_utils/sfx_player.py
+import azure.cognitiveservices.speech as speechsdk
+from xml.sax.saxutils import escape
+import tempfile
 import os
-import threading
-import sounddevice as sd
-import soundfile as sf
-from .voice_config import PREFERRED_SPEAKER_ID
+import re
+from .voice_config import (
+    AZURE_SPEECH_KEY,
+    AZURE_SPEECH_REGION,
+    AZURE_VOICE_NAME,
+    DEFAULT_STYLE,
+    DEFAULT_STYLE_DEGREE,
+    DEFAULT_PITCH,
+    DEFAULT_RATE
+)
 
-# A simple dictionary to map sound effect names to file paths
-SOUND_EFFECTS = {
-    'airhorn': 'audio_effects/airhorn.wav',
-    'fart': 'audio_effects/fart.wav',
-    'bonk': 'audio_effects/bonk.wav',
-    # Add other sound effects here
+# Sound effect URL base - we'll serve these from the UI server
+SOUND_EFFECTS_BASE_URL = "http://localhost:8002/audio_effects"
+
+# Map of effect names to files and fallback text
+SOUND_EFFECT_MAP = {
+    'airhorn': {'file': 'https://drive.google.com/uc?export=download&id=18pCgThtyvf4aLf8hURah-b_hpt1MjgyV', 'fallback': '*AIRHORN*'},
+    'bonk': {'file': 'https://drive.google.com/uc?export=download&id=1A766bICW2irgzXWSnnPXXwAcX5ywyZGa', 'fallback': '*BONK*'},
+    'fart': {'file': 'https://drive.google.com/uc?export=download&id=15N6JzPKrg1NG5qh_gYDh5kDrQApHxe6R', 'fallback': '*FART*'}
 }
 
-def play_sound_effect_threaded(sfx_name: str):
+def process_sound_effects(text):
     """
-    Plays a pre-defined sound effect in a non-blocking thread.
-    This is necessary to not halt the main program loop.
+    Process text to convert *EFFECTNAME* markers into SSML audio tags.
+    
+    Args:
+        text (str): Input text with sound effect markers like *AIRHORN*
+        
+    Returns:
+        str: Text with SSML audio tags replacing markers
     """
-    sfx_path = SOUND_EFFECTS.get(sfx_name.lower())
-    if not sfx_path:
-        print(f"❌ Sound effect '{sfx_name}' not found.")
-        print(f"Available effects: {list(SOUND_EFFECTS.keys())}")
-        return False
+    def replace_effect(match):
+        effect_name = match.group(1).lower()
+        if effect_name in SOUND_EFFECT_MAP:
+            effect_info = SOUND_EFFECT_MAP[effect_name]
+            audio_url = f"{effect_info['file']}"
+            fallback = effect_info['fallback']
+            return f'<audio src="{audio_url}">{fallback}</audio>'
+        else:
+            # Unknown effect, leave as is
+            return match.group(0)
     
-    # Construct full path - go up from tts_utils to nami root
-    full_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), sfx_path)
+    # Find *EFFECTNAME* patterns and replace with SSML audio tags
+    pattern = r'\*([A-Za-z]+)\*'
+    processed_text = re.sub(pattern, replace_effect, text)
     
-    if not os.path.exists(full_path):
-        print(f"❌ Sound effect file not found at path: {full_path}")
-        return False
+    return processed_text
 
-    print(f"🔊 Activating sound effect: {sfx_name}")
-    
-    # Use threading to play the sound without blocking
-    def play_sound():
-        try:
-            # Load and play the audio file
-            data, samplerate = sf.read(full_path)
-            sd.play(data, samplerate, device=PREFERRED_SPEAKER_ID)
-            sd.wait()  # Wait until sound is finished
-            print(f"✅ Sound effect '{sfx_name}' completed")
-        except Exception as e:
-            print(f"❌ Error playing sound effect '{sfx_name}': {e}")
-    
-    threading.Thread(target=play_sound, daemon=True).start()
-    return True
+def text_to_speech_file(text, style=DEFAULT_STYLE, style_degree=DEFAULT_STYLE_DEGREE, 
+                        rate=DEFAULT_RATE, pitch=DEFAULT_PITCH):
+    """
+    Convert text to speech and save as a WAV file, with sound effect support
+    Returns the filename if successful, None if failed
+    """
+    try:
+        # Validate core configuration
+        if not AZURE_SPEECH_KEY or not AZURE_SPEECH_REGION:
+            raise ValueError("Azure credentials not configured properly")
+            
+        # Configure speech config
+        speech_config = speechsdk.SpeechConfig(
+            subscription=AZURE_SPEECH_KEY,
+            region=AZURE_SPEECH_REGION
+        )
+        
+        # Set voice and print the voice we're using
+        speech_config.speech_synthesis_voice_name = AZURE_VOICE_NAME
+        print(f"🗣️ Using voice: {AZURE_VOICE_NAME}")
+        
+        # Set high-quality audio format - Mac optimized (48kHz)
+        speech_config.set_speech_synthesis_output_format(
+            speechsdk.SpeechSynthesisOutputFormat.Riff48Khz16BitMonoPcm)
+        print("🔊 Using high-quality 48kHz audio format")
+        
+        # Create a temporary file to store the audio
+        temp_file = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
+        temp_file.close()
+        
+        # Configure audio output to file
+        audio_config = speechsdk.audio.AudioOutputConfig(filename=temp_file.name)
+        print(f"📝 Saving speech to temporary file: {temp_file.name}")
+        
+        # Create synthesizer with file output
+        synthesizer = speechsdk.SpeechSynthesizer(
+            speech_config=speech_config,
+            audio_config=audio_config
+        )
+
+        # Process sound effects and build SSML
+        processed_text = process_sound_effects(text)
+        print(f"🎵 Processed text with sound effects: {processed_text[:100]}...")
+        
+        ssml = _build_ssml(processed_text, style, style_degree, rate, pitch)
+
+        # Synthesize with detailed error handling
+        print("🎵 Generating speech with sound effects to file...")
+        result = synthesizer.speak_ssml_async(ssml).get()
+
+        if result.reason == speechsdk.ResultReason.SynthesizingAudioCompleted:
+            print("✅ Synthesis with sound effects successful")
+            return temp_file.name
+        else:
+            print(f"❌ Synthesis to file failed: {result.reason}")
+            if result.reason == speechsdk.ResultReason.Canceled:
+                cancellation = result.cancellation_details
+                print(f"Reason: {cancellation.reason}")
+                if cancellation.reason == speechsdk.CancellationReason.Error:
+                    print(f"Error details: {cancellation.error_details}")
+            
+            # Try to clean up the file if synthesis failed
+            try:
+                os.unlink(temp_file.name)
+            except:
+                pass
+                
+            return None
+
+    except Exception as e:
+        print(f"🔥 Critical error in synthesis: {str(e)}")
+        return None
+
+def _build_ssml(text, style, style_degree, rate, pitch):
+    """Helper to build SSML markup for Azure TTS with sound effect support"""
+    ssml = f"""<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" 
+          xmlns:mstts="http://www.w3.org/2001/mstts" xml:lang="en-US">
+        <voice name="{AZURE_VOICE_NAME}">
+            <prosody rate="{rate}" pitch="{pitch}%">"""
+
+    if style:
+        ssml += f'<mstts:express-as style="{style}" styledegree="{style_degree}">'
+        # Note: We don't escape the text here because it now contains SSML audio tags
+        ssml += text
+        ssml += '</mstts:express-as>'
+    else:
+        # Note: We don't escape the text here because it now contains SSML audio tags
+        ssml += text
+
+    ssml += "</prosody></voice></speak>"
+    return ssml
 
 def get_available_sound_effects():
-    """
-    Returns a list of all available sound effects.
-    """
-    return list(SOUND_EFFECTS.keys())
+    """Returns a list of available sound effect names"""
+    return list(SOUND_EFFECT_MAP.keys())
 
-def test_sound_effects():
-    """Test all available sound effects"""
-    print("🎵 Testing all sound effects...")
-    for effect_name in SOUND_EFFECTS.keys():
-        print(f"Testing {effect_name}...")
-        play_sound_effect_threaded(effect_name)
-        # Small delay between tests
-        import time
-        time.sleep(2)
+def test_sound_effect_processing():
+    """Test function to see how sound effect processing works"""
+    test_cases = [
+        "That's absolutely *AIRHORN* hilarious!",
+        "You're such a *BONK* idiot sometimes",
+        "Well that was a load of *FART* if I've ever heard one",
+        "Multiple effects: *AIRHORN* and then *BONK* boom!",
+        "Unknown effect *EXPLOSION* should stay as is"
+    ]
+    
+    print("=== Sound Effect Processing Test ===")
+    for test in test_cases:
+        processed = process_sound_effects(test)
+        print(f"Original:  {test}")
+        print(f"Processed: {processed}")
+        print()
 
 if __name__ == "__main__":
-    test_sound_effects()
+    test_sound_effect_processing()

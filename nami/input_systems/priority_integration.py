@@ -46,7 +46,8 @@ def init_priority_system(
             source_info = {
                 'source': item.source.name,
                 'timestamp': item.timestamp,
-                'use_tts': item.source == InputSource.DIRECT_MICROPHONE,
+                # UPDATED LOGIC: Enable TTS for Twitch mentions as well
+                'use_tts': item.source in [InputSource.DIRECT_MICROPHONE, InputSource.TWITCH_MENTION],
                 **item.metadata
             }
             input_funnel.add_input(
