@@ -2,6 +2,7 @@ import azure.cognitiveservices.speech as speechsdk
 from xml.sax.saxutils import escape
 import tempfile
 import os
+import re
 from .voice_config import (
     AZURE_SPEECH_KEY,
     AZURE_SPEECH_REGION,
@@ -12,10 +13,47 @@ from .voice_config import (
     DEFAULT_RATE
 )
 
+# Sound effect URL base - we'll serve these from the UI server
+SOUND_EFFECTS_BASE_URL = "http://localhost:8002/audio_effects"
+
+# Map of effect names to files and fallback text
+SOUND_EFFECT_MAP = {
+    'airhorn': {'file': 'airhorn.wav', 'fallback': '*AIRHORN*'},
+    'bonk': {'file': 'bonk.wav', 'fallback': '*BONK*'},
+    'fart': {'file': 'fart.wav', 'fallback': '*FART*'}
+}
+
+def process_sound_effects(text):
+    """
+    Process text to convert *EFFECTNAME* markers into SSML audio tags.
+    
+    Args:
+        text (str): Input text with sound effect markers like *AIRHORN*
+        
+    Returns:
+        str: Text with SSML audio tags replacing markers
+    """
+    def replace_effect(match):
+        effect_name = match.group(1).lower()
+        if effect_name in SOUND_EFFECT_MAP:
+            effect_info = SOUND_EFFECT_MAP[effect_name]
+            audio_url = f"{SOUND_EFFECTS_BASE_URL}/{effect_info['file']}"
+            fallback = effect_info['fallback']
+            return f'<audio src="{audio_url}">{fallback}</audio>'
+        else:
+            # Unknown effect, leave as is
+            return match.group(0)
+    
+    # Find *EFFECTNAME* patterns and replace with SSML audio tags
+    pattern = r'\*([A-Za-z]+)\*'
+    processed_text = re.sub(pattern, replace_effect, text)
+    
+    return processed_text
+
 def text_to_speech_file(text, style=DEFAULT_STYLE, style_degree=DEFAULT_STYLE_DEGREE, 
                         rate=DEFAULT_RATE, pitch=DEFAULT_PITCH):
     """
-    Convert text to speech and save as a WAV file
+    Convert text to speech and save as a WAV file, with sound effect support
     Returns the filename if successful, None if failed
     """
     try:
@@ -52,15 +90,18 @@ def text_to_speech_file(text, style=DEFAULT_STYLE, style_degree=DEFAULT_STYLE_DE
             audio_config=audio_config
         )
 
-        # Build SSML with proper escaping
-        ssml = _build_ssml(text, style, style_degree, rate, pitch)
+        # Process sound effects and build SSML
+        processed_text = process_sound_effects(text)
+        print(f"🎵 Processed text with sound effects: {processed_text[:100]}...")
+        
+        ssml = _build_ssml(processed_text, style, style_degree, rate, pitch)
 
         # Synthesize with detailed error handling
-        print("🎵 Generating speech to file...")
+        print("🎵 Generating speech with sound effects to file...")
         result = synthesizer.speak_ssml_async(ssml).get()
 
         if result.reason == speechsdk.ResultReason.SynthesizingAudioCompleted:
-            print("✅ Synthesis to file successful")
+            print("✅ Synthesis with sound effects successful")
             return temp_file.name
         else:
             print(f"❌ Synthesis to file failed: {result.reason}")
@@ -83,7 +124,7 @@ def text_to_speech_file(text, style=DEFAULT_STYLE, style_degree=DEFAULT_STYLE_DE
         return None
 
 def _build_ssml(text, style, style_degree, rate, pitch):
-    """Helper to build SSML markup for Azure TTS"""
+    """Helper to build SSML markup for Azure TTS with sound effect support"""
     ssml = f"""<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" 
           xmlns:mstts="http://www.w3.org/2001/mstts" xml:lang="en-US">
         <voice name="{AZURE_VOICE_NAME}">
@@ -91,10 +132,36 @@ def _build_ssml(text, style, style_degree, rate, pitch):
 
     if style:
         ssml += f'<mstts:express-as style="{style}" styledegree="{style_degree}">'
-        ssml += escape(text)
+        # Note: We don't escape the text here because it now contains SSML audio tags
+        ssml += text
         ssml += '</mstts:express-as>'
     else:
-        ssml += escape(text)
+        # Note: We don't escape the text here because it now contains SSML audio tags
+        ssml += text
 
     ssml += "</prosody></voice></speak>"
     return ssml
+
+def get_available_sound_effects():
+    """Returns a list of available sound effect names"""
+    return list(SOUND_EFFECT_MAP.keys())
+
+def test_sound_effect_processing():
+    """Test function to see how sound effect processing works"""
+    test_cases = [
+        "That's absolutely *AIRHORN* hilarious!",
+        "You're such a *BONK* idiot sometimes",
+        "Well that was a load of *FART* if I've ever heard one",
+        "Multiple effects: *AIRHORN* and then *BONK* boom!",
+        "Unknown effect *EXPLOSION* should stay as is"
+    ]
+    
+    print("=== Sound Effect Processing Test ===")
+    for test in test_cases:
+        processed = process_sound_effects(test)
+        print(f"Original:  {test}")
+        print(f"Processed: {processed}")
+        print()
+
+if __name__ == "__main__":
+    test_sound_effect_processing()

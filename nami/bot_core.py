@@ -2,12 +2,36 @@ import os
 import yaml
 import vertexai
 import traceback
-from vertexai.generative_models import GenerativeModel, HarmCategory, HarmBlockThreshold, Part, Content
+from vertexai.generative_models import GenerativeModel, HarmCategory, HarmBlockThreshold, Part, Content, FunctionDeclaration, Tool
 from google.oauth2 import service_account
 from nami.config import TUNED_MODEL_ID
 from nami.context import get_formatted_context
 
 BOTNAME = "peepingnami"
+
+# Define sound effect function
+play_sound_effect_func = FunctionDeclaration(
+    name="play_sound_effect",
+    description="Play a sound effect during speech. Use this when the user asks you to play a sound or when you want to emphasize something with a sound effect.",
+    parameters={
+        "type": "object",
+        "properties": {
+            "effect_name": {
+                "type": "string",
+                "enum": ["airhorn", "bonk", "fart"],
+                "description": "The name of the sound effect to play"
+            },
+            "context": {
+                "type": "string", 
+                "description": "Why you're playing this sound effect (optional)"
+            }
+        },
+        "required": ["effect_name"]
+    }
+)
+
+# Create the tool
+sound_effects_tool = Tool(function_declarations=[play_sound_effect_func])
 
 class NamiBot:
     def __init__(self, config_path='nami/model_in_progress.yaml'):
@@ -48,11 +72,12 @@ class NamiBot:
         }
 
         print(f"Creating model with ID: {TUNED_MODEL_ID}")
-        # FIX: Add system_instruction to the model initialization
+        # FIX: Add system_instruction and tools to the model initialization
         self.model = GenerativeModel(
             model_name=TUNED_MODEL_ID,
             system_instruction=self.system_prompt,
-            safety_settings=self.safety_settings
+            safety_settings=self.safety_settings,
+            tools=[sound_effects_tool]  # Add sound effects tool
         )
 
         # This will store our conversation history manually
@@ -82,13 +107,67 @@ class NamiBot:
             print(f"Error loading system prompt: {e}")
             return ""
 
+    def _handle_function_calls(self, response):
+        """Handle function calls from the model response"""
+        if not response.candidates or not response.candidates[0].content.parts:
+            return None
+            
+        function_calls = []
+        text_parts = []
+        
+        for part in response.candidates[0].content.parts:
+            if hasattr(part, 'function_call') and part.function_call:
+                # Handle function call
+                func_call = part.function_call
+                if func_call.name == "play_sound_effect":
+                    effect_name = func_call.args.get("effect_name", "")
+                    context = func_call.args.get("context", "")
+                    
+                    print(f"🔊 Function call: play_sound_effect({effect_name})")
+                    
+                    # Actually play the sound effect
+                    self._execute_sound_effect(effect_name, context)
+                    
+                    function_calls.append({
+                        'name': func_call.name,
+                        'args': dict(func_call.args)
+                    })
+            elif hasattr(part, 'text') and part.text:
+                text_parts.append(part.text)
+                
+        return {
+            'text': ''.join(text_parts),
+            'function_calls': function_calls
+        }
+
+    def _execute_sound_effect(self, effect_name, context=""):
+        """Actually execute the sound effect"""
+        try:
+            # Import here to avoid circular imports
+            from nami.tts_utils.sfx_player import play_sound_effect_threaded
+            
+            print(f"🎵 Playing sound effect: {effect_name}")
+            if context:
+                print(f"   Context: {context}")
+                
+            success = play_sound_effect_threaded(effect_name)
+            if success:
+                print(f"✅ Sound effect '{effect_name}' played successfully")
+            else:
+                print(f"❌ Failed to play sound effect '{effect_name}'")
+                
+        except ImportError:
+            print(f"⚠️ Sound effect system not available - would play '{effect_name}'")
+        except Exception as e:
+            print(f"❌ Error playing sound effect '{effect_name}': {e}")
+
     def generate_response(self, prompt):
         """
         Generates a response using a stateless generate_content call,
         including dynamic context and conversation history.
         """
         if not prompt:
-            return "I can't respond to an empty prompt, silly."
+            return "I can't respond to an empty prompt, silly.", "No context provided."
 
         dynamic_context = get_formatted_context()
         full_prompt_with_context = f"{dynamic_context}\n\nUSER PROMPT: {prompt}"
@@ -116,7 +195,17 @@ class NamiBot:
             ]
 
             response = self.model.generate_content(contents_for_api)
-            nami_response = response.text
+            
+            # Handle function calls if present
+            result = self._handle_function_calls(response)
+            
+            if result and result['function_calls']:
+                # Model made function calls
+                nami_response = result['text'] if result['text'] else "🎵 *plays sound effect*"
+                print(f"📞 Function calls made: {result['function_calls']}")
+            else:
+                # Regular text response
+                nami_response = response.text
 
             self.history.append(Content(role="user", parts=[Part.from_text(prompt)]))
             self.history.append(Content(role="model", parts=[Part.from_text(nami_response)]))

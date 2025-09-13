@@ -12,6 +12,7 @@ from nami.input_systems import (
     process_hearing_line,
 )
 from nami.ui import start_ui_server, emit_log, emit_bot_reply
+from nami.vision_process_manager import start_vision_process, stop_vision_process # Import the new functions
 
 # --- UI Log Redirection ---
 _is_logging = threading.local()
@@ -92,7 +93,7 @@ class FunnelResponseHandler:
 
         print(f"\n[BOT] {response}")
         print("You: ", end="", flush=True)
-        
+
         emit_bot_reply(response, prompt_details)
 
         # --- MODIFIED: Send response to Twitch for mic input as well ---
@@ -115,12 +116,12 @@ class FunnelResponseHandler:
             try:
                 # Step 1: Generate the audio file from text. This is a blocking network call.
                 audio_filename = self.generation_func(response)
-                
+
                 if audio_filename:
                     # Step 2: Play the generated file in a non-blocking background thread.
                     playback_thread = threading.Thread(
-                        target=self.playback_func, 
-                        args=(audio_filename,), 
+                        target=self.playback_func,
+                        args=(audio_filename,),
                         daemon=True
                     )
                     playback_thread.start()
@@ -145,6 +146,7 @@ def main():
     """Start the bot with integrated priority system."""
     global global_input_funnel
 
+    start_vision_process() # Start the vision process
     start_ui_server()
     sys.stdout = LogRedirector(sys.stdout, 'INFO')
     sys.stderr = LogRedirector(sys.stderr, 'ERROR')
@@ -182,7 +184,7 @@ def main():
     start_hearing_system(callback=hearing_line_processor)
     start_vision_client()
     init_twitch_bot(funnel=input_funnel)
-    
+
     print("System initialization complete, ready for input")
 
     try:
@@ -195,6 +197,7 @@ def main():
             global_input_funnel.stop()
         stop_hearing_system()
         shutdown_priority_system()
+        stop_vision_process() # Stop the vision process
         print("Shutdown complete.")
 
 
