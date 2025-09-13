@@ -3,6 +3,7 @@ from xml.sax.saxutils import escape
 import tempfile
 import os
 import re
+import requests
 from .voice_config import (
     AZURE_SPEECH_KEY,
     AZURE_SPEECH_REGION,
@@ -13,8 +14,36 @@ from .voice_config import (
     DEFAULT_RATE
 )
 
-# Sound effect URL base - we'll serve these from the UI server
-SOUND_EFFECTS_BASE_URL = "https://0529802235d8.ngrok-free.app/audio_effects"
+# --- DYNAMIC URL RESOLUTION ---
+def get_sound_effects_base_url():
+    """
+    Dynamically determine the best sound effects base URL.
+    Tries multiple sources in order of preference.
+    """
+    
+    # Option 1: Check environment variable for permanent URL
+    env_url = os.environ.get('NAMI_AUDIO_URL')
+    if env_url:
+        print(f"🎵 Using permanent audio URL: {env_url}")
+        return env_url
+    
+    # Option 2: Check if ngrok is running and get current tunnel
+    try:
+        response = requests.get("http://localhost:4040/api/tunnels", timeout=1)
+        tunnels = response.json()
+        if tunnels.get("tunnels"):
+            ngrok_url = tunnels["tunnels"][0]["public_url"]
+            print(f"🎵 Using active ngrok tunnel: {ngrok_url}/audio_effects")
+            return f"{ngrok_url}/audio_effects"
+    except:
+        pass
+    
+    # Option 3: Fallback to localhost (won't work for Azure TTS, but won't crash)
+    print("🎵 Using localhost fallback (sound effects will be text only)")
+    return "http://localhost:8002/audio_effects"
+
+# Get the current base URL dynamically
+SOUND_EFFECTS_BASE_URL = get_sound_effects_base_url()
 
 # Map of effect names to files and fallback text
 SOUND_EFFECT_MAP = {
@@ -26,12 +55,16 @@ SOUND_EFFECT_MAP = {
 def process_sound_effects(text):
     """
     Process text to convert *EFFECTNAME* markers into SSML audio tags.
+    Dynamically resolves the base URL each time.
     """
+    # Get fresh URL each time in case ngrok changed
+    current_base_url = get_sound_effects_base_url()
+    
     def replace_effect(match):
         effect_name = match.group(1).lower()
         if effect_name in SOUND_EFFECT_MAP:
             effect_info = SOUND_EFFECT_MAP[effect_name]
-            audio_url = f"{SOUND_EFFECTS_BASE_URL}/{effect_info['file']}"
+            audio_url = f"{current_base_url}/{effect_info['file']}"
             fallback = effect_info['fallback']
             return f'<audio src="{audio_url}">{fallback}</audio>'
         else:
@@ -86,9 +119,11 @@ def text_to_speech_file(text, style=DEFAULT_STYLE, style_degree=DEFAULT_STYLE_DE
 
         # Process sound effects and build SSML
         processed_text = process_sound_effects(text)
-        print(f"🎵 Processed text with sound effects: {processed_text[:100]}...")
+        print(f"🎵 Original text: {text}")
+        print(f"🎵 Processed text: {processed_text}")
         
         ssml = _build_ssml(processed_text, style, style_degree, rate, pitch)
+        print(f"🎵 Generated SSML: {ssml[:200]}...")
 
         # Synthesize with detailed error handling
         print("🎵 Generating speech with sound effects to file...")
@@ -101,7 +136,7 @@ def text_to_speech_file(text, style=DEFAULT_STYLE, style_degree=DEFAULT_STYLE_DE
             print(f"❌ Synthesis to file failed: {result.reason}")
             if result.reason == speechsdk.ResultReason.Canceled:
                 cancellation = result.cancellation_details
-                print(f"Reason: {cancellation.reason}")
+                print(f"Cancellation reason: {cancellation.reason}")
                 if cancellation.reason == speechsdk.CancellationReason.Error:
                     print(f"Error details: {cancellation.error_details}")
             

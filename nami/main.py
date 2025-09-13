@@ -1,6 +1,12 @@
 import sys
 import threading
 import os
+import subprocess
+import time
+import requests
+import json
+import re
+import atexit
 from nami.bot_core import ask_question, BOTNAME
 from nami.audio_utils.hearing_system import start_hearing_system, stop_hearing_system
 from nami.vision_client import start_vision_client
@@ -62,6 +68,59 @@ except ImportError:
 
 # Global references for clean shutdown
 global_input_funnel = None
+ngrok_process = None
+
+# --- NEW: ngrok management functions ---
+def start_ngrok_tunnel():
+    """Start ngrok tunnel and return the public URL"""
+    global ngrok_process
+    
+    print("🌐 Starting ngrok tunnel for sound effects...")
+    
+    try:
+        # Start ngrok in background
+        ngrok_process = subprocess.Popen(
+            ["ngrok", "http", "8002", "--log=stdout"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE
+        )
+        
+        # Wait a moment for ngrok to start
+        time.sleep(3)
+        
+        # Get the public URL from ngrok's API
+        response = requests.get("http://localhost:4040/api/tunnels", timeout=5)
+        tunnels = response.json()
+        
+        if tunnels.get("tunnels"):
+            public_url = tunnels["tunnels"][0]["public_url"]
+            print(f"✅ ngrok tunnel active: {public_url}")
+            return public_url
+        else:
+            print("❌ No ngrok tunnels found")
+            return None
+            
+    except subprocess.CalledProcessError:
+        print("❌ Failed to start ngrok - make sure it's installed (brew install ngrok)")
+        return None
+    except requests.exceptions.RequestException:
+        print("❌ ngrok started but API not accessible")
+        return None
+    except Exception as e:
+        print(f"❌ Error starting ngrok: {e}")
+        return None
+
+def stop_ngrok():
+    """Stop the ngrok process"""
+    global ngrok_process
+    if ngrok_process:
+        print("🌐 Stopping ngrok tunnel...")
+        ngrok_process.terminate()
+        try:
+            ngrok_process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            ngrok_process.kill()
+        ngrok_process = None
 
 def hearing_line_processor(line_str):
     """Processes a single line of text from the hearing system."""
@@ -148,6 +207,19 @@ def main():
 
     start_vision_process() # Start the vision process
     start_ui_server()
+    
+    # Give UI server time to start before starting ngrok
+    time.sleep(2)
+    
+    # --- NEW: Auto-start ngrok for sound effects ---
+    if tts_available:
+        ngrok_url = start_ngrok_tunnel()
+        if ngrok_url:
+            # Register cleanup function
+            atexit.register(stop_ngrok)
+        else:
+            print("⚠️ Sound effects will use fallback text (ngrok not available)")
+    
     sys.stdout = LogRedirector(sys.stdout, 'INFO')
     sys.stderr = LogRedirector(sys.stderr, 'ERROR')
 
@@ -198,6 +270,7 @@ def main():
         stop_hearing_system()
         shutdown_priority_system()
         stop_vision_process() # Stop the vision process
+        stop_ngrok() # Stop ngrok tunnel
         print("Shutdown complete.")
 
 
