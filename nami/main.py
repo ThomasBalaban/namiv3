@@ -12,7 +12,9 @@ from nami.input_systems import (
     process_hearing_line,
 )
 from nami.ui import start_ui_server, emit_log, emit_bot_reply
-from nami.vision_process_manager import start_vision_process, stop_vision_process # Import the new functions
+from nami.vision_process_manager import start_vision_process, stop_vision_process
+from nami.tts_utils.sfx_player import play_sound_effect_threaded
+import traceback
 
 # --- UI Log Redirection ---
 _is_logging = threading.local()
@@ -24,7 +26,6 @@ class LogRedirector:
         self.level = level
 
     def write(self, message):
-        # Prevent recursion if a print is called within the logging system itself
         if getattr(_is_logging, 'active', False):
             self.original_stream.write(message)
             return
@@ -32,11 +33,9 @@ class LogRedirector:
         try:
             _is_logging.active = True
             self.original_stream.write(message)
-            # Only emit non-empty messages to the UI to avoid clutter
             if message.strip():
                 emit_log(self.level, message.strip())
         finally:
-            # Ensure the flag is always reset
             _is_logging.active = False
 
     def flush(self):
@@ -86,39 +85,41 @@ class FunnelResponseHandler:
         self.generation_func = generation_func
         self.playback_func = playback_func
 
-    def handle_response(self, response, prompt_details, source_info):
-        if not response:
+    def handle_response(self, response_tuple, prompt_details, source_info):
+        response_text, prompt_details_text, tool_call = response_tuple
+
+        if not response_text and not tool_call:
             print("Empty response received")
             return
 
-        print(f"\n[BOT] {response}")
+        print(f"\n[BOT] {response_text}")
         print("You: ", end="", flush=True)
 
-        emit_bot_reply(response, prompt_details)
+        emit_bot_reply(response_text, prompt_details_text)
 
-        # --- MODIFIED: Send response to Twitch for mic input as well ---
+        if tool_call:
+            tool_name = tool_call['tool']
+            tool_args = tool_call['args']
+
+            if tool_name == 'play_sound_effect':
+                play_sound_effect_threaded(**tool_args)
+
         try:
             source = source_info.get('source')
             if source in ['TWITCH_MENTION', 'DIRECT_MICROPHONE']:
                 username = source_info.get('username')
-                # Format as a reply if it's from a specific user in chat
                 if source == 'TWITCH_MENTION' and username:
-                    twitch_response = f"@{username} {response}"
+                    twitch_response = f"@{username} {response_text}"
                 else:
-                    # Otherwise, send the raw response
-                    twitch_response = response
+                    twitch_response = response_text
                 send_to_twitch_sync(twitch_response)
         except Exception as e:
             print(f"[TWITCH] Error sending response: {e}")
 
-        # --- MODIFIED: Separate audio generation and playback ---
         if self.generation_func and self.playback_func and source_info.get('use_tts', False):
             try:
-                # Step 1: Generate the audio file from text. This is a blocking network call.
-                audio_filename = self.generation_func(response)
-
+                audio_filename = self.generation_func(response_text)
                 if audio_filename:
-                    # Step 2: Play the generated file in a non-blocking background thread.
                     playback_thread = threading.Thread(
                         target=self.playback_func,
                         args=(audio_filename,),
@@ -146,58 +147,70 @@ def main():
     """Start the bot with integrated priority system."""
     global global_input_funnel
 
-    start_vision_process() # Start the vision process
-    start_ui_server()
-    sys.stdout = LogRedirector(sys.stdout, 'INFO')
-    sys.stderr = LogRedirector(sys.stderr, 'ERROR')
-
-    use_funnel = input_funnel_available
-    input_funnel = None
-    funnel_response_handler = None
-
-    if use_funnel:
-        print("Initializing input funnel...")
-        funnel_response_handler = FunnelResponseHandler(
-            generation_func=text_to_speech_file if tts_available else None,
-            playback_func=play_audio_file if tts_available else None
-        )
-        input_funnel = InputFunnel(
-            bot_callback=ask_question,
-            response_handler=funnel_response_handler.handle_response,
-            # --- Changed back as requested ---
-            min_prompt_interval=2
-        )
-        global_input_funnel = input_funnel
-
-    init_priority_system(
-        llm_callback=ask_question,
-        bot_name=BOTNAME,
-        enable_bot_core=True,
-        funnel_instance=input_funnel if use_funnel else None
-    )
-
-    if use_funnel:
-        from nami.input_systems.input_handlers import set_input_funnel
-        set_input_funnel(input_funnel)
-        print("NOTICE: Desktop audio and vision inputs are now context-only by default")
-
-    start_hearing_system(callback=hearing_line_processor)
-    start_vision_client()
-    init_twitch_bot(funnel=input_funnel)
-
-    print("System initialization complete, ready for input")
-
+    print("Starting Nami systems...")
     try:
+        start_vision_process()
+        print("Vision process started.")
+        start_ui_server()
+        print("UI server started.")
+        sys.stdout = LogRedirector(sys.stdout, 'INFO')
+        sys.stderr = LogRedirector(sys.stderr, 'ERROR')
+        print("Logging redirected.")
+
+        use_funnel = input_funnel_available
+        input_funnel = None
+        funnel_response_handler = None
+
+        if use_funnel:
+            print("Initializing input funnel...")
+            funnel_response_handler = FunnelResponseHandler(
+                generation_func=text_to_speech_file if tts_available else None,
+                playback_func=play_audio_file if tts_available else None
+            )
+            input_funnel = InputFunnel(
+                bot_callback=ask_question,
+                response_handler=funnel_response_handler.handle_response,
+                min_prompt_interval=2
+            )
+            global_input_funnel = input_funnel
+
+        init_priority_system(
+            llm_callback=ask_question,
+            bot_name=BOTNAME,
+            enable_bot_core=True,
+            funnel_instance=input_funnel if use_funnel else None
+        )
+        print("Priority system initialized.")
+
+        if use_funnel:
+            from nami.input_systems.input_handlers import set_input_funnel
+            set_input_funnel(input_funnel)
+            print("NOTICE: Desktop audio and vision inputs are now context-only by default")
+
+        start_hearing_system(callback=hearing_line_processor)
+        print("Hearing system started.")
+        start_vision_client()
+        print("Vision client started.")
+        init_twitch_bot(funnel=input_funnel)
+        print("Twitch bot initialized.")
+
+        print("System initialization complete, ready for input")
+
         console_input_loop()
-    except KeyboardInterrupt:
-        print("\nCtrl+C detected. Shutting down gracefully...")
+
+    except Exception as e:
+        print("\n" + "="*20 + " CRITICAL STARTUP ERROR " + "="*20)
+        print("An error occurred during system initialization. The program will now exit.")
+        print(f"Error: {e}")
+        traceback.print_exc()
+        print("="*64)
     finally:
         print("Cleaning up resources...")
         if global_input_funnel:
             global_input_funnel.stop()
         stop_hearing_system()
         shutdown_priority_system()
-        stop_vision_process() # Stop the vision process
+        stop_vision_process()
         print("Shutdown complete.")
 
 

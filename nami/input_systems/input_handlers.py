@@ -1,6 +1,7 @@
 from .priority_core import InputSource
 from ..config import ENABLE_DESKTOP_AUDIO, ENABLE_VISION
 from ..ui import emit_spoken_word_context, emit_audio_context
+from ..tts_utils.sfx_player import play_sound_effect_threaded # Corrected function name
 
 # Global references
 priority_system = None
