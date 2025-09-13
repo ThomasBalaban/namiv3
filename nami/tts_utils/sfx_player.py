@@ -1,3 +1,5 @@
+# Updated nami/tts_utils/tts_engine.py
+
 import azure.cognitiveservices.speech as speechsdk
 from xml.sax.saxutils import escape
 import tempfile
@@ -13,31 +15,27 @@ from .voice_config import (
     DEFAULT_RATE
 )
 
-# Sound effect URL base - we'll serve these from the UI server
+# Sound effect URL base - serving locally from your UI server
 SOUND_EFFECTS_BASE_URL = "http://localhost:8002/audio_effects"
 
 # Map of effect names to files and fallback text
+# Temporary public URLs for testing
 SOUND_EFFECT_MAP = {
-    'airhorn': {'file': 'https://drive.google.com/uc?export=download&id=18pCgThtyvf4aLf8hURah-b_hpt1MjgyV', 'fallback': '*AIRHORN*'},
-    'bonk': {'file': 'https://drive.google.com/uc?export=download&id=1A766bICW2irgzXWSnnPXXwAcX5ywyZGa', 'fallback': '*BONK*'},
-    'fart': {'file': 'https://drive.google.com/uc?export=download&id=15N6JzPKrg1NG5qh_gYDh5kDrQApHxe6R', 'fallback': '*FART*'}
+    'airhorn': {'file': 'https://www2.cs.uic.edu/~i101/SoundFiles/CantinaBand3.wav', 'fallback': '*AIRHORN*'},
+    'bonk': {'file': 'https://www2.cs.uic.edu/~i101/SoundFiles/CantinaBand3.wav', 'fallback': '*BONK*'},
+    'fart': {'file': 'https://www2.cs.uic.edu/~i101/SoundFiles/CantinaBand3.wav', 'fallback': '*FART*'}
 }
 
 def process_sound_effects(text):
     """
     Process text to convert *EFFECTNAME* markers into SSML audio tags.
-    
-    Args:
-        text (str): Input text with sound effect markers like *AIRHORN*
-        
-    Returns:
-        str: Text with SSML audio tags replacing markers
     """
     def replace_effect(match):
         effect_name = match.group(1).lower()
         if effect_name in SOUND_EFFECT_MAP:
             effect_info = SOUND_EFFECT_MAP[effect_name]
-            audio_url = f"{effect_info['file']}"
+            # Use your local server instead of Google Drive
+            audio_url = f"{SOUND_EFFECTS_BASE_URL}/{effect_info['file']}"
             fallback = effect_info['fallback']
             return f'<audio src="{audio_url}">{fallback}</audio>'
         else:
@@ -92,9 +90,11 @@ def text_to_speech_file(text, style=DEFAULT_STYLE, style_degree=DEFAULT_STYLE_DE
 
         # Process sound effects and build SSML
         processed_text = process_sound_effects(text)
-        print(f"🎵 Processed text with sound effects: {processed_text[:100]}...")
+        print(f"🎵 Original text: {text}")
+        print(f"🎵 Processed text: {processed_text}")
         
         ssml = _build_ssml(processed_text, style, style_degree, rate, pitch)
+        print(f"🎵 Generated SSML: {ssml[:200]}...")
 
         # Synthesize with detailed error handling
         print("🎵 Generating speech with sound effects to file...")
@@ -107,7 +107,7 @@ def text_to_speech_file(text, style=DEFAULT_STYLE, style_degree=DEFAULT_STYLE_DE
             print(f"❌ Synthesis to file failed: {result.reason}")
             if result.reason == speechsdk.ResultReason.Canceled:
                 cancellation = result.cancellation_details
-                print(f"Reason: {cancellation.reason}")
+                print(f"Cancellation reason: {cancellation.reason}")
                 if cancellation.reason == speechsdk.CancellationReason.Error:
                     print(f"Error details: {cancellation.error_details}")
             

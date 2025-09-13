@@ -14,7 +14,7 @@ from .voice_config import (
 )
 
 # Sound effect URL base - we'll serve these from the UI server
-SOUND_EFFECTS_BASE_URL = "http://localhost:8002/audio_effects"
+SOUND_EFFECTS_BASE_URL = "https://0529802235d8.ngrok-free.app/audio_effects"
 
 # Map of effect names to files and fallback text
 SOUND_EFFECT_MAP = {
