@@ -2,16 +2,15 @@ import os
 import yaml
 import vertexai
 import traceback
-from vertexai.generative_models import GenerativeModel, HarmCategory, HarmBlockThreshold, Part, Content, Tool, FunctionDeclaration, FunctionCall
+from vertexai.generative_models import GenerativeModel, HarmCategory, HarmBlockThreshold, Part, Content
 from google.oauth2 import service_account
 from nami.config import TUNED_MODEL_ID
 from nami.context import get_formatted_context
-from nami.tts_utils.sfx_player import play_sound_effect_threaded, get_available_sound_effects
 
 BOTNAME = "peepingnami"
 
 class NamiBot:
-    def __init__(self, config_path='model_in_progress.yaml'):
+    def __init__(self, config_path='nami/model_in_progress.yaml'):
         """
         Initializes the NamiBot using a service account key for authentication.
         """
@@ -47,32 +46,13 @@ class NamiBot:
             HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
             HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
         }
-        
-        # --- NEW: Define the tool schema manually with FunctionDeclaration ---
-        play_sfx_func = FunctionDeclaration(
-            name="play_sound_effect",
-            description="Plays a sound effect for the stream. Use this function when Nami wants to add an audio cue to her response, for example, to punctuate a joke or react to something.",
-            parameters={
-                "type": "object",
-                "properties": {
-                    "sfx_name": {
-                        "type": "string",
-                        "enum": get_available_sound_effects(),
-                        "description": "The name of the sound effect to play."
-                    }
-                },
-                "required": ["sfx_name"],
-            },
-        )
-        # Create the tool instance from the function declaration
-        play_sfx_tool = Tool(function_declarations=[play_sfx_func])
 
-        print(f"Creating model with ID: {TUNED_MODEL_ID} and tool use enabled.")
+        print(f"Creating model with ID: {TUNED_MODEL_ID}")
+        # FIX: Add system_instruction to the model initialization
         self.model = GenerativeModel(
             model_name=TUNED_MODEL_ID,
             system_instruction=self.system_prompt,
-            safety_settings=self.safety_settings,
-            tools=[play_sfx_tool] # Pass the tool to the model
+            safety_settings=self.safety_settings
         )
 
         # This will store our conversation history manually
@@ -87,8 +67,7 @@ class NamiBot:
         Loads the system prompt from the YAML configuration file.
         """
         try:
-            config_file_path = os.path.join(os.path.dirname(__file__), self.config_path)
-            with open(config_file_path, 'r', encoding='utf-8') as f:
+            with open(self.config_path, 'r', encoding='utf-8') as f:
                 config = yaml.safe_load(f)
                 prompt = config.get('SYSTEM', '')
                 if not prompt:
@@ -97,7 +76,7 @@ class NamiBot:
                 print(f"Loaded system prompt from {self.config_path}")
                 return prompt
         except FileNotFoundError:
-            print(f"Error: Config file not found at {config_file_path}")
+            print(f"Error: Config file not found at {self.config_path}")
             return "You are Nami, a helpful assistant."
         except Exception as e:
             print(f"Error loading system prompt: {e}")
@@ -137,48 +116,24 @@ class NamiBot:
             ]
 
             response = self.model.generate_content(contents_for_api)
+            nami_response = response.text
 
-            # --- MODIFIED: Handle both text and function call responses ---
-            nami_response_text = ""
-            tool_call_part = None
-
-            for part in response.parts:
-                if part.text:
-                    nami_response_text += part.text
-                elif isinstance(part, FunctionCall):
-                    tool_call_part = part
-
-            # If a tool call was made, extract the function name and arguments
-            if tool_call_part:
-                tool_name = tool_call_part.name
-                tool_args = tool_call_part.args
-
-                # Return a special object that contains the text and the tool call.
-                print(f"Tool call detected: {tool_name}({tool_args})")
-                return nami_response_text, full_context_for_ui, {"tool": tool_name, "args": tool_args}
-
-            # If there's no text response either, return a generic message
-            if not nami_response_text:
-                nami_response_text = "Hmm, I'm not sure what to say to that."
-
-            # No tool call, just return the text response
             self.history.append(Content(role="user", parts=[Part.from_text(prompt)]))
-            self.history.append(Content(role="model", parts=[Part.from_text(nami_response_text)]))
+            self.history.append(Content(role="model", parts=[Part.from_text(nami_response)]))
 
             if len(self.history) > self.max_history_length:
                 self.history = self.history[-self.max_history_length:]
 
-            print(f"\n--- Received Nami's Response ---\n{nami_response_text}\n----------------------------------")
-            return nami_response_text, full_context_for_ui, None
-
+            print(f"\n--- Received Nami's Response ---\n{nami_response}\n----------------------------------")
+            # --- FIX: Return the full context for the UI ---
+            return nami_response, full_context_for_ui
         except Exception as e:
             print("\n" + "="*20 + " API ERROR " + "="*20)
             print(f"An error occurred while generating response. Full error details:")
             traceback.print_exc()
             print("="*51 + "\n")
             # --- FIX: Return the UI context even on error ---
-            return "Ugh, my circuits are sizzling. Give me a second and try that again.", full_context_for_ui, None
-
+            return "Ugh, my circuits are sizzling. Give me a second and try that again.", full_context_for_ui
 
 # Create a global instance
 if not TUNED_MODEL_ID:
