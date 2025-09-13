@@ -21,5 +21,6 @@ nami/gcp_creds.json
 nami/gcp_creds2.json
 .DS_Store
 **/.DS_Store
-
 nami/mlx-community/**
+nami/audio_effects/**
+.DS_Store
