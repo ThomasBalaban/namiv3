@@ -31,3 +31,4 @@ transformers>=4.35.0
 accelerate>=0.25.0
 google-generativeai
 google-cloud-aiplatform
+parakeet-mlx

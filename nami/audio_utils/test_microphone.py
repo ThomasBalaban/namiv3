@@ -6,17 +6,38 @@ Test script to verify microphone transcription is working
 import numpy as np
 import sounddevice as sd
 import time
-from faster_whisper import WhisperModel
+import sys
+import os
+import mlx.core as mx
 
+try:
+    # Attempt to import the new Parakeet library
+    import parakeet_mlx
+    PARAKEET_AVAILABLE = True
+except ImportError:
+    print("❌ 'parakeet-mlx' not found. Please ensure it is installed.")
+    print("Run: pip install parakeet-mlx")
+    PARAKEET_AVAILABLE = False
+    
 def test_microphone():
     """Test microphone input and transcription"""
     
+    if not PARAKEET_AVAILABLE:
+        print("Cannot proceed without 'parakeet-mlx'.")
+        return False
+        
     # Configuration
     SAMPLE_RATE = 16000
     DURATION = 3  # seconds
-    DEVICE_ID = 4  # Your Scarlett Solo 4th Gen
+    # Assuming device ID from config, or fallback
+    try:
+        from nami.config import MICROPHONE_DEVICE_ID
+        DEVICE_ID = MICROPHONE_DEVICE_ID
+    except (ImportError, ModuleNotFoundError):
+        DEVICE_ID = 4  # Your Scarlett Solo 4th Gen
+        print(f"⚠️ Using fallback microphone device ID: {DEVICE_ID}")
     
-    print("🎤 Microphone Test")
+    print("🎤 Microphone Test (using Parakeet)")
     print("=" * 30)
     
     # List available devices
@@ -27,15 +48,15 @@ def test_microphone():
             marker = " ← SELECTED" if i == DEVICE_ID else ""
             print(f"  {i}: {device['name']}{marker}")
     
-    # Initialize Whisper model
-    print(f"\n🤖 Loading Whisper model...")
+    # Load the Parakeet model
+    print(f"\n🤖 Loading Parakeet model...")
     try:
-        model = WhisperModel("tiny.en", device="cpu", compute_type="int8")
+        model = parakeet_mlx.from_pretrained("mlx-community/parakeet-tdt-0.6b-v2")
         print("✅ Model loaded successfully")
     except Exception as e:
         print(f"❌ Error loading model: {e}")
         return False
-    
+
     # Test recording
     print(f"\n🎤 Testing microphone recording...")
     print(f"   Device: {DEVICE_ID}")
@@ -72,19 +93,22 @@ def test_microphone():
         else:
             print("✅ Audio level good")
         
-        # Test transcription
-        print(f"\n🔄 Transcribing...")
+        # Test transcription with Parakeet
+        print(f"\n🔄 Transcribing with Parakeet...")
         try:
-            segments, info = model.transcribe(
-                audio_flat,
-                beam_size=1,
-                language="en"
-            )
+            # CORRECTED: Call transcribe_stream from the model object without chunk_duration
+            with model.transcribe_stream() as transcriber:
+                transcriber.add_audio(mx.array(audio_flat))
+                # Finalize the stream and get the result
+                result = transcriber.result
             
-            text = "".join(segment.text for segment in segments).strip()
-            
+            # Check if result is a valid object before trying to access its attributes
+            if result and hasattr(result, 'text'):
+                text = result.text.strip()
+            else:
+                text = ""
+
             print(f"\n📝 Transcription Results:")
-            print(f"   Language: {info.language} (probability: {info.language_probability:.2f})")
             print(f"   Text: '{text}'")
             
             if text:

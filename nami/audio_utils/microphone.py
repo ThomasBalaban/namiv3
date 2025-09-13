@@ -1,4 +1,4 @@
-# nami/audio_utils/improved_microphone.py
+# nami/audio_utils/microphone.py
 import os
 import sys
 import numpy as np
@@ -7,15 +7,14 @@ import time
 import soundfile as sf
 import re
 import traceback
-from faster_whisper import WhisperModel
-from ..config import MICROPHONE_DEVICE_ID, FS, CHUNK_DURATION, OVERLAP, MAX_THREADS, SAVE_DIR
-from queue import Queue, Empty
+from queue import Queue
 from threading import Thread, Event, Lock
+# We will not import transcribe_stream directly, as it's not at the top level
+import parakeet_mlx
+import mlx.core as mx
+from ..config import MICROPHONE_DEVICE_ID, FS, CHUNK_DURATION, OVERLAP, MAX_THREADS, SAVE_DIR
 
 # Configuration for Microphone
-MODEL_SIZE = "base.en"
-DEVICE = "cpu"
-COMPUTE_TYPE = "int8"
 SAMPLE_RATE = FS  # Use the same sample rate as desktop audio
 CHANNELS = 1
 
@@ -25,7 +24,6 @@ VAD_SILENCE_DURATION = 1.5    # Seconds of silence to consider speech ended
 VAD_MAX_SPEECH_DURATION = 15.0 # Maximum seconds to buffer before forcing a transcription
 
 # Global variables for this module
-model = None
 stop_event = Event()
 
 class MicrophoneTranscriber:
@@ -35,18 +33,15 @@ class MicrophoneTranscriber:
         self.FS = SAMPLE_RATE
         self.SAVE_DIR = SAVE_DIR
         self.MAX_THREADS = MAX_THREADS
-        self.MODEL_SIZE = MODEL_SIZE
-        self.DEVICE = DEVICE
-        self.COMPUTE_TYPE = COMPUTE_TYPE
-
+        
         os.makedirs(self.SAVE_DIR, exist_ok=True)
 
-        print(f"🎙️ Initializing faster-whisper for Microphone: {self.MODEL_SIZE} on {self.DEVICE}")
+        print("🎙️ Initializing parakeet-mlx for Microphone...")
         try:
-            self.model = WhisperModel(self.MODEL_SIZE, device=self.DEVICE, compute_type=self.COMPUTE_TYPE)
-            print("✅ faster-whisper model for Microphone is ready.")
+            self.model = parakeet_mlx.from_pretrained("mlx-community/parakeet-tdt-0.6b-v2")
+            print("✅ parakeet-mlx for Microphone is ready.")
         except Exception as e:
-            print(f"❌ Error loading model: {e}")
+            print(f"❌ Error initializing Parakeet: {e}")
             raise
 
         self.result_queue = Queue()
@@ -146,16 +141,17 @@ class MicrophoneTranscriber:
         filename = None
         try:
             filename = self.save_audio(chunk)
-            params = {
-                "beam_size": 5,
-                "language": "en",
-                "condition_on_previous_text": False,
-            }
-            segments, info = self.model.transcribe(chunk, **params)
-            text = "".join(seg.text for seg in segments).strip()
-
+            
+            # --- MODIFIED: Use the correct method call and arguments ---
+            with self.model.transcribe_stream() as transcriber:
+                transcriber.add_audio(mx.array(chunk))
+                result = transcriber.result
+                text = result.text.strip() if result and hasattr(result, 'text') else ""
+            
             if text and len(text) >= 2:
-                self.result_queue.put((text, filename, "microphone", info.language_probability))
+                # We don't have a confidence from parakeet-mlx, so we'll set a default
+                confidence = 0.9
+                self.result_queue.put((text, filename, "microphone", confidence))
             else:
                 if not self.keep_files and filename and os.path.exists(filename):
                     os.remove(filename)
@@ -259,7 +255,6 @@ def transcribe_microphone():
         print(f"A critical error occurred in the microphone transcriber: {e}")
         import traceback
         traceback.print_exc()
-
 
 if __name__ == "__main__":
     try:
