@@ -2,7 +2,8 @@ import time
 from threading import Lock
 
 # Constants
-CONTEXT_TIME_WINDOW_SECONDS = 30
+CONTEXT_TIME_WINDOW_SECONDS = 12
+SPOKEN_WORD_TIME_WINDOW_SECONDS = 30
 MAX_TWITCH_CONTEXT_LENGTH = 20
 
 # Global context stores
@@ -39,7 +40,7 @@ def update_spoken_word_context(text: str):
         now = time.time()
         latest_spoken_word_context.append((now, text))
         # Filter out old entries
-        latest_spoken_word_context = [(ts, txt) for ts, txt in latest_spoken_word_context if now - ts <= CONTEXT_TIME_WINDOW_SECONDS]
+        latest_spoken_word_context = [(ts, txt) for ts, txt in latest_spoken_word_context if now - ts <= SPOKEN_WORD_TIME_WINDOW_SECONDS]
 
 def update_audio_context(text: str):
     """Thread-safely updates audio context, keeping entries within the time window."""
