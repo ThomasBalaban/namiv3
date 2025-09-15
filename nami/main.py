@@ -138,7 +138,6 @@ def hearing_line_processor(line_str):
     elif any(x in line_str for x in ["Loading", "Starting", "Initializing", "Error", "Vosk"]):
         print(f"[Hearing] {line_str}")
 
-
 class FunnelResponseHandler:
     """Handler for funnel responses (including TTS and UI updates)"""
     def __init__(self, generation_func=None, playback_func=None):
@@ -153,6 +152,7 @@ class FunnelResponseHandler:
         print(f"\n[BOT] {response}")
         print("You: ", end="", flush=True)
 
+        # --- MODIFIED: Emit the FULL response (with sound effects) to UI ---
         emit_bot_reply(response, prompt_details)
 
         # --- MODIFIED: Send response to Twitch for mic input as well ---
@@ -166,18 +166,21 @@ class FunnelResponseHandler:
                 else:
                     # Otherwise, send the raw response
                     twitch_response = response
+                    
+                # --- IMPORTANT: This will automatically strip sound effects for Twitch ---
+                # but the UI already received the full message above
                 send_to_twitch_sync(twitch_response)
         except Exception as e:
             print(f"[TWITCH] Error sending response: {e}")
 
-        # --- MODIFIED: Separate audio generation and playback ---
+        # TTS processing (unchanged)
         if self.generation_func and self.playback_func and source_info.get('use_tts', False):
             try:
-                # Step 1: Generate the audio file from text. This is a blocking network call.
+                # Step 1: Generate the audio file from text (with sound effects)
                 audio_filename = self.generation_func(response)
 
                 if audio_filename:
-                    # Step 2: Play the generated file in a non-blocking background thread.
+                    # Step 2: Play the generated file in a non-blocking background thread
                     playback_thread = threading.Thread(
                         target=self.playback_func,
                         args=(audio_filename,),

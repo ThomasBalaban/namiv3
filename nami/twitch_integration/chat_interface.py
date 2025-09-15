@@ -1,19 +1,21 @@
+# Updated nami/twitch_integration/chat_interface.py
+
 import asyncio
 import threading
 import time
 from . import twitch_chat
 from ..config import TARGET_CHANNEL
 from ..bot_core import BOTNAME
-# --- MODIFIED: Import the correct, centralized message handler ---
 from ..input_systems import handle_twitch_message as process_incoming_message
 from ..ui.server import emit_twitch_message
+# --- NEW: Import the text processing utilities ---
+from ..tts_utils.text_utils import strip_sound_effects, has_sound_effects
 
 input_funnel = None
 message_lock = asyncio.Lock()
 is_twitch_running = False
 twitch_event_loop = None
 
-# --- MODIFIED: This function is now a simple bridge to the main input system ---
 async def handle_twitch_message(msg):
     """
     Handles all incoming Twitch messages.
@@ -32,15 +34,26 @@ async def handle_twitch_message(msg):
         # This handler knows how to route mentions vs. regular chat for context
         await process_incoming_message(msg, botname=BOTNAME)
 
-
 twitch_message_queue = asyncio.Queue()
 
 async def send_to_twitch_internal(message):
+    """Send message to Twitch, stripping sound effects for chat while keeping them in UI"""
     chat = twitch_chat.get_chat()
     if chat:
         try:
-            await chat.send_message(TARGET_CHANNEL, message)
-            print(f"[TWITCH] Sent: {message[:50]}...")
+            # Strip sound effects for Twitch chat
+            chat_message = strip_sound_effects(message)
+            
+            # Send the cleaned message to Twitch
+            await chat.send_message(TARGET_CHANNEL, chat_message)
+            
+            # Log what we're doing
+            if has_sound_effects(message):
+                print(f"[TWITCH] Original: {message[:50]}...")
+                print(f"[TWITCH] Sent (cleaned): {chat_message[:50]}...")
+            else:
+                print(f"[TWITCH] Sent: {chat_message[:50]}...")
+                
         except Exception as e:
             print(f"Error sending to Twitch: {e}")
     else:
