@@ -14,13 +14,8 @@ def load_banned_words():
         from .hard_filter import banned_words
         return [word.lower() for word in banned_words]
     except ImportError:
-        try:
-            # Fallback to old location
-            from ..hard_filter import banned_words
-            return [word.lower() for word in banned_words]
-        except ImportError:
-            print("⚠️ Warning: Could not load banned words list")
-            return []
+        print("⚠️ Warning: Could not load banned words list")
+        return []
 
 def contains_banned_content(text):
     """
