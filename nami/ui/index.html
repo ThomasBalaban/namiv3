@@ -80,6 +80,20 @@
             padding: 1px 4px;
             border-radius: 4px;
         }
+
+        .censored-reply {
+            background-color: rgba(239, 68, 68, 0.2) !important; /* Red background with transparency */
+            border-left: 3px solid #ef4444 !important; /* Red left border */
+            border-radius: 4px !important;
+            padding: 0.25rem 0.5rem !important;
+        }
+
+        .censored-indicator {
+            color: #ef4444;
+            font-weight: 600;
+            font-size: 0.75rem;
+            margin-left: 0.5rem;
+        }
     </style>
 </head>
 
@@ -209,34 +223,55 @@
         });
 
         socket.on('bot_reply', (data) => {
+            console.log('Received bot_reply:', data); // Debug log
+            
             // Sanitize visible row content
             const sanitizedReply = sanitizeHTML(data.reply);
-            const sanitizedPrompt = sanitizeHTML(data.prompt || ''); // may be your context_prompt (flat)
-            const sentMessageRaw = bestEffortSentMessageFrom(data); // raw (un-sanitized) for Drawer textContent
+            const sanitizedPrompt = sanitizeHTML(data.prompt || '');
+            const sentMessageRaw = bestEffortSentMessageFrom(data);
+            const isCensored = data.is_censored || false;
 
-            // Row HTML (no tooltip; click opens drawer)
+            console.log('Is censored:', isCensored); // Debug log
+
+            // Add censorship styling and indicator if needed
+            const censorshipClass = isCensored ? 'censored-reply' : '';
+            const censorshipIndicator = isCensored ? '<span class="censored-indicator">🚨 FILTERED</span>' : '';
+
+            // Row HTML with conditional styling
             const replyHTML = `
-          <div class="log-line nami-reply group cursor-pointer"
+          <div class="log-line nami-reply group cursor-pointer ${censorshipClass}"
                data-reply="${encodeURIComponent(data.reply || '')}"
-               data-sent="${encodeURIComponent(sentMessageRaw)}">
-              <strong>Nami:</strong> ${sanitizedReply}
+               data-sent="${encodeURIComponent(sentMessageRaw)}"
+               data-censored="${isCensored}">
+              <strong>Nami:</strong> ${sanitizedReply}${censorshipIndicator}
               <span class="ml-2 opacity-0 group-hover:opacity-100 text-xs text-gray-400 align-middle">📄 Context</span>
           </div>`;
+
+            console.log('Generated HTML:', replyHTML); // Debug log
 
             // Append to list
             appendLog(namiReplies, replyHTML, 50);
 
             // Wire the click for the LAST inserted element
             const lastRow = namiReplies.lastElementChild;
+            
+            // Debug: Check if the class was applied
+            if (isCensored) {
+                console.log('Applied classes:', lastRow.className);
+                console.log('Background color:', window.getComputedStyle(lastRow).backgroundColor);
+            }
+            
             lastRow.addEventListener('click', () => {
                 // Pull raw values, decode, and open drawer
                 const replyText = decodeURIComponent(lastRow.getAttribute('data-reply') || '');
                 const sentText = decodeURIComponent(lastRow.getAttribute('data-sent') || '');
+                const wasCensored = lastRow.getAttribute('data-censored') === 'true';
 
                 // For display, we use textContent (no HTML). This keeps it safe & readable.
                 openDrawer({
                     sentMessage: sentText,
-                    replyText: replyText
+                    replyText: replyText,
+                    wasCensored: wasCensored
                 });
             });
         });
@@ -280,14 +315,27 @@
 
     <script>
         // --- Drawer helpers ---
-        function openDrawer({ sentMessage, replyText }) {
+         function openDrawer({ sentMessage, replyText, wasCensored = false }) {
             const overlay = document.getElementById('context-drawer-overlay');
             const drawer = document.getElementById('context-drawer');
             const sentEl = document.getElementById('drawer-sent');
             const replyEl = document.getElementById('drawer-reply');
 
             sentEl.textContent = sentMessage || '(not provided)';
-            replyEl.textContent = replyText || '(not provided)';
+            
+            // Add censorship warning to reply if needed
+            if (wasCensored) {
+                replyEl.innerHTML = `<div style="color: #ef4444; font-weight: 600; margin-bottom: 0.5rem;">🚨 CONTENT FILTERED - Original Response:</div>`;
+                const replyTextEl = document.createElement('div');
+                replyTextEl.textContent = replyText || '(not provided)';
+                replyEl.appendChild(replyTextEl);
+                replyEl.style.backgroundColor = 'rgba(239, 68, 68, 0.1)';
+                replyEl.style.borderColor = '#ef4444';
+            } else {
+                replyEl.textContent = replyText || '(not provided)';
+                replyEl.style.backgroundColor = '#1f1f1f';
+                replyEl.style.borderColor = '#3a3a3a';
+            }
 
             overlay.classList.remove('hidden');
             drawer.classList.remove('translate-x-full');

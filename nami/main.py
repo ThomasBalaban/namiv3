@@ -19,6 +19,8 @@ from nami.input_systems import (
 )
 from nami.ui import start_ui_server, emit_log, emit_bot_reply
 from nami.vision_process_manager import start_vision_process, stop_vision_process # Import the new functions
+from nami.tts_utils.content_filter import process_response_for_content
+
 
 # --- UI Log Redirection ---
 _is_logging = threading.local()
@@ -138,8 +140,9 @@ def hearing_line_processor(line_str):
     elif any(x in line_str for x in ["Loading", "Starting", "Initializing", "Error", "Vosk"]):
         print(f"[Hearing] {line_str}")
 
+
 class FunnelResponseHandler:
-    """Handler for funnel responses (including TTS and UI updates)"""
+    """Handler for funnel responses (including TTS, UI updates, and content filtering)"""
     def __init__(self, generation_func=None, playback_func=None):
         self.generation_func = generation_func
         self.playback_func = playback_func
@@ -149,35 +152,57 @@ class FunnelResponseHandler:
             print("Empty response received")
             return
 
-        print(f"\n[BOT] {response}")
+        # --- NEW: Process response through content filter ---
+        print(f"[FILTER DEBUG] Original response: {response}")
+        filtered_content = process_response_for_content(response)
+        
+        # Extract the different versions
+        tts_version = filtered_content['tts_version']
+        twitch_version = filtered_content['twitch_version'] 
+        ui_version = filtered_content['ui_version']
+        is_censored = filtered_content['is_censored']
+
+        print(f"[FILTER DEBUG] TTS version: {tts_version}")
+        print(f"[FILTER DEBUG] Twitch version: {twitch_version}")
+        print(f"[FILTER DEBUG] UI version: {ui_version}")
+        print(f"[FILTER DEBUG] Is censored: {is_censored}")
+
+        # Log what we're using
+        if is_censored:
+            print(f"\n[BOT - CENSORED] Original: {response[:50]}...")
+            print(f"[BOT - CENSORED] Sending: {tts_version}")
+        else:
+            print(f"\n[BOT] {tts_version}")
+        
         print("You: ", end="", flush=True)
 
-        # --- MODIFIED: Emit the FULL response (with sound effects) to UI ---
-        emit_bot_reply(response, prompt_details)
+        # --- MODIFIED: Emit to UI with censorship flag ---
+        emit_bot_reply(ui_version, prompt_details, is_censored=is_censored)
 
-        # --- MODIFIED: Send response to Twitch for mic input as well ---
+        # --- MODIFIED: Send filtered version to Twitch ---
         try:
             source = source_info.get('source')
             if source in ['TWITCH_MENTION', 'DIRECT_MICROPHONE']:
                 username = source_info.get('username')
                 # Format as a reply if it's from a specific user in chat
                 if source == 'TWITCH_MENTION' and username:
-                    twitch_response = f"@{username} {response}"
+                    twitch_response = f"@{username} {twitch_version}"
                 else:
                     # Otherwise, send the raw response
-                    twitch_response = response
-                    
-                # --- IMPORTANT: This will automatically strip sound effects for Twitch ---
-                # but the UI already received the full message above
+                    twitch_response = twitch_version
+                
+                print(f"[FILTER DEBUG] Final Twitch message: {twitch_response}")
+                
+                # This will automatically handle sound effects and censorship
                 send_to_twitch_sync(twitch_response)
         except Exception as e:
             print(f"[TWITCH] Error sending response: {e}")
 
-        # TTS processing (unchanged)
+        # --- MODIFIED: TTS uses filtered version ---
         if self.generation_func and self.playback_func and source_info.get('use_tts', False):
             try:
-                # Step 1: Generate the audio file from text (with sound effects)
-                audio_filename = self.generation_func(response)
+                # Step 1: Generate the audio file from the TTS version (censored if needed)
+                audio_filename = self.generation_func(tts_version)
 
                 if audio_filename:
                     # Step 2: Play the generated file in a non-blocking background thread

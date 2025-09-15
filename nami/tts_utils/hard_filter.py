@@ -22,5 +22,6 @@ banned_words = [
     "porch monkey",
     "sand monkey", 
     "wetback",
+    "peeingotter",
     # add any additional banned words here
 ]
