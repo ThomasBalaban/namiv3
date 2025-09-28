@@ -1,8 +1,5 @@
 # Nami AI Project Checklist
 
-## Bugs
-- Mic randomly stops listening: The microphone input ceases to function intermittently without a clear error message.
-
 ## To-Do
 - Implement true short-term memory: Create a system for Nami to recall context from the current conversation session.
 

@@ -18,9 +18,18 @@ from nami.input_systems import (
     process_hearing_line,
 )
 from nami.ui import start_ui_server, emit_log, emit_bot_reply
-from nami.vision_process_manager import start_vision_process, stop_vision_process # Import the new functions
+from nami.vision_process_manager import start_vision_process, stop_vision_process
 from nami.tts_utils.content_filter import process_response_for_content
 
+# Import security config
+from nami.config import (
+    NGROK_AUTH_ENABLED, 
+    NGROK_AUTH_USERNAME, 
+    NGROK_AUTH_PASSWORD,
+    NGROK_BIND_TLS,
+    NGROK_INSPECT,
+    SECURITY_NOTIFICATIONS
+)
 
 # --- UI Log Redirection ---
 _is_logging = threading.local()
@@ -72,17 +81,46 @@ except ImportError:
 global_input_funnel = None
 ngrok_process = None
 
-# --- NEW: ngrok management functions ---
+# --- SECURE NGROK FUNCTIONS ---
 def start_ngrok_tunnel():
-    """Start ngrok tunnel and return the public URL"""
+    """Start ngrok tunnel with security features from config.py"""
     global ngrok_process
     
-    print("🌐 Starting ngrok tunnel for sound effects...")
+    if SECURITY_NOTIFICATIONS:
+        print("🔒 Starting secure ngrok tunnel for sound effects...")
+        if NGROK_AUTH_ENABLED:
+            print(f"🔐 Authentication enabled for user: {NGROK_AUTH_USERNAME}")
+        if NGROK_BIND_TLS:
+            print("🛡️ HTTPS-only mode enabled")
+        if not NGROK_INSPECT:
+            print("🔍 Web inspection interface disabled for privacy")
     
     try:
+        # Build ngrok command with security options
+        cmd = ["ngrok", "http", "8002"]
+        
+        # Add authentication if enabled in config
+        if NGROK_AUTH_ENABLED and NGROK_AUTH_USERNAME and NGROK_AUTH_PASSWORD:
+            auth_string = f"{NGROK_AUTH_USERNAME}:{NGROK_AUTH_PASSWORD}"
+            cmd.extend(["-auth", auth_string])
+            
+        # Force HTTPS if enabled in config
+        if NGROK_BIND_TLS:
+            cmd.append("-bind-tls=true")
+            
+        # Disable inspection if configured
+        if not NGROK_INSPECT:
+            cmd.append("-inspect=false")
+            
+        # Add logging
+        cmd.extend(["--log=stdout"])
+        
+        if SECURITY_NOTIFICATIONS:
+            print(f"🚀 Running ngrok with security options from config.py")
+        
         # Start ngrok in background
         ngrok_process = subprocess.Popen(
-            ["ngrok", "http", "8002", "--log=stdout"],
+            cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE
         )
@@ -95,8 +133,23 @@ def start_ngrok_tunnel():
         tunnels = response.json()
         
         if tunnels.get("tunnels"):
-            public_url = tunnels["tunnels"][0]["public_url"]
-            print(f"✅ ngrok tunnel active: {public_url}")
+            tunnel_info = tunnels["tunnels"][0]
+            public_url = tunnel_info["public_url"]
+            
+            # Security logging
+            if SECURITY_NOTIFICATIONS:
+                print(f"✅ Secure tunnel active: {public_url}")
+                if NGROK_AUTH_ENABLED:
+                    print(f"🔐 Protected with username: {NGROK_AUTH_USERNAME}")
+                    print(f"🔑 Password from config: {NGROK_AUTH_PASSWORD}")
+                    print("   To change password: update NGROK_AUTH_PASSWORD in config.py and restart")
+                
+                # Check if HTTPS
+                if public_url.startswith("https://"):
+                    print("🔒 Tunnel is using HTTPS encryption")
+                else:
+                    print("⚠️ Warning: Tunnel is using HTTP (not encrypted)")
+                    
             return public_url
         else:
             print("❌ No ngrok tunnels found")
@@ -109,20 +162,54 @@ def start_ngrok_tunnel():
         print("❌ ngrok started but API not accessible")
         return None
     except Exception as e:
-        print(f"❌ Error starting ngrok: {e}")
+        print(f"❌ Error starting secure ngrok: {e}")
         return None
 
 def stop_ngrok():
     """Stop the ngrok process"""
     global ngrok_process
     if ngrok_process:
-        print("🌐 Stopping ngrok tunnel...")
+        if SECURITY_NOTIFICATIONS:
+            print("🔒 Stopping secure ngrok tunnel...")
         ngrok_process.terminate()
         try:
             ngrok_process.wait(timeout=5)
         except subprocess.TimeoutExpired:
             ngrok_process.kill()
         ngrok_process = None
+
+def check_tunnel_security():
+    """Check and display current security status"""
+    try:
+        response = requests.get("http://localhost:4040/api/tunnels", timeout=2)
+        tunnels = response.json()
+        
+        if not tunnels.get("tunnels"):
+            if SECURITY_NOTIFICATIONS:
+                print("ℹ️ No active tunnels to check")
+            return False
+            
+        tunnel = tunnels["tunnels"][0]
+        url = tunnel["public_url"]
+        
+        if SECURITY_NOTIFICATIONS:
+            print(f"\n🔍 Security Status:")
+            print(f"   Tunnel URL: {url}")
+            print(f"   HTTPS: {'✅' if url.startswith('https') else '❌'}")
+            print(f"   Auth: {'✅' if NGROK_AUTH_ENABLED else '❌'}")
+            print(f"   Inspection: {'🔒 Disabled' if not NGROK_INSPECT else '⚠️ Enabled'}")
+            
+            if NGROK_AUTH_ENABLED:
+                print(f"   Username: {NGROK_AUTH_USERNAME}")
+                print(f"   Password: {NGROK_AUTH_PASSWORD}")
+                print("   💡 Change password in config.py anytime")
+            
+        return True
+        
+    except Exception as e:
+        if SECURITY_NOTIFICATIONS:
+            print(f"❌ Error checking tunnel security: {e}")
+        return False
 
 def hearing_line_processor(line_str):
     """Processes a single line of text from the hearing system."""
@@ -230,7 +317,7 @@ def console_input_loop():
 
 
 def main():
-    """Start the bot with integrated priority system."""
+    """Start the bot with integrated priority system and secure ngrok."""
     global global_input_funnel
 
     start_vision_process() # Start the vision process
@@ -239,12 +326,26 @@ def main():
     # Give UI server time to start before starting ngrok
     time.sleep(2)
     
-    # --- NEW: Auto-start ngrok for sound effects ---
+    # --- SECURE NGROK WITH CONFIG VALUES ---
     if tts_available:
         ngrok_url = start_ngrok_tunnel()
         if ngrok_url:
+            # Show security status
+            check_tunnel_security()
+            
             # Register cleanup function
             atexit.register(stop_ngrok)
+            
+            if SECURITY_NOTIFICATIONS:
+                print(f"\n🎉 Secure audio server is ready!")
+                print(f"🌐 External URL: {ngrok_url}")
+                if NGROK_AUTH_ENABLED:
+                    print(f"🔐 Authentication required:")
+                    print(f"   Username: {NGROK_AUTH_USERNAME}")
+                    print(f"   Password: {NGROK_AUTH_PASSWORD}")
+                    print(f"   💡 To change password: edit NGROK_AUTH_PASSWORD in config.py and restart")
+                else:
+                    print("⚠️ No authentication enabled - tunnel is public!")
         else:
             print("⚠️ Sound effects will use fallback text (ngrok not available)")
     
@@ -264,7 +365,6 @@ def main():
         input_funnel = InputFunnel(
             bot_callback=ask_question,
             response_handler=funnel_response_handler.handle_response,
-            # --- Changed back as requested ---
             min_prompt_interval=2
         )
         global_input_funnel = input_funnel
@@ -298,7 +398,7 @@ def main():
         stop_hearing_system()
         shutdown_priority_system()
         stop_vision_process() # Stop the vision process
-        stop_ngrok() # Stop ngrok tunnel
+        stop_ngrok() # Stop secure ngrok tunnel
         print("Shutdown complete.")
 
 
