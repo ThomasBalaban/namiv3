@@ -53,7 +53,20 @@ async def handle_twitch_message(msg, botname="peepingnami"):
                 metadata
             )
 
-# ====== HEARING SYSTEM HANDLER ======
+# ====== AUDIO WEBSOCKET HANDLER (NEW) ======
+def handle_websocket_audio_input(data):
+    """Processes incoming audio data from the WebSocket."""
+    source = data.get('source', 'unknown')
+    text = data.get('text', '')
+    confidence = data.get('confidence', 0.7)
+
+    if source == 'microphone':
+        handle_microphone_input(text, confidence)
+    elif source == 'desktop':
+        audio_type = data.get('audio_type', 'speech')
+        handle_desktop_audio_input(text, audio_type, confidence)
+
+# ====== MICROPHONE AUDIO HANDLER ======
 def handle_microphone_input(transcription, confidence=0.7):
     """Process input specifically from microphone"""
     global priority_system
@@ -124,47 +137,7 @@ def handle_desktop_audio_input(transcription, audio_type, confidence):
             transcription,
             metadata
         )
-
-def process_hearing_line(line):
-    """Process a line of output from the hearing system"""
-    if not line.strip():
-        return
-
-    confidence = 0.7
-    source_type = "UNKNOWN"
-    transcription = ""
-
-    if "[Microphone Input]" in line:
-        transcription = line.replace("[Microphone Input]", "").strip()
-
-        if transcription:
-            handle_microphone_input(transcription)
-
-    elif any(x in line for x in ["SPEECH", "MUSIC"]):
-
-        if "SPEECH" in line:
-            source_type = "SPEECH"
-            parts = line.split("SPEECH")
-            if len(parts) > 1 and len(parts[1].split("]")) > 0:
-                try:
-                    confidence = float(parts[1].split("]")[0].strip())
-                except:
-                    confidence = 0.7
-        elif "MUSIC" in line:
-            source_type = "MUSIC"
-            parts = line.split("MUSIC")
-            if len(parts) > 1 and len(parts[1].split("]")) > 0:
-                try:
-                    confidence = float(parts[1].split("]")[0].strip())
-                except:
-                    confidence = 0.7
-
-        parts = line.split("]")
-        if len(parts) > 1:
-            transcription = parts[-1].strip()
-
-        if transcription:
-            handle_desktop_audio_input(transcription, source_type, confidence)
+# REMOVED: process_hearing_line function
 
 # ====== VISION SYSTEM HANDLER ======
 def handle_vision_input(analysis_text, confidence, metadata=None):

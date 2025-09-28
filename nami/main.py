@@ -8,14 +8,14 @@ import json
 import re
 import atexit
 from nami.bot_core import ask_question, BOTNAME
-from nami.audio_utils.hearing_system import start_hearing_system, stop_hearing_system
+from nami.audio_client import start_audio_client # NEW IMPORT
 from nami.vision_client import start_vision_client
 from nami.twitch_integration import init_twitch_bot, send_to_twitch_sync
 from nami.input_systems import (
     init_priority_system,
     shutdown_priority_system,
     process_console_command,
-    process_hearing_line,
+    # REMOVED: process_hearing_line
 )
 from nami.ui import start_ui_server, emit_log, emit_bot_reply
 from nami.vision_process_manager import start_vision_process, stop_vision_process
@@ -211,22 +211,8 @@ def check_tunnel_security():
             print(f"❌ Error checking tunnel security: {e}")
         return False
 
-def hearing_line_processor(line_str):
-    """Processes a single line of text from the hearing system."""
-    if ("[Microphone Input]" in line_str or
-        ("]" in line_str and any(x in line_str for x in ["SPEECH", "MUSIC"]))):
-
-        if "[Microphone Input]" in line_str:
-            formatted = line_str.replace("[Microphone Input]", "[HEARING] 🎤")
-        else:
-            formatted = line_str.replace("[", "[HEARING] 🔊 [", 1)
-
-        print(f"\n{formatted}")
-        print("You: ", end="", flush=True)
-        process_hearing_line(line_str)
-    elif any(x in line_str for x in ["Loading", "Starting", "Initializing", "Error", "Vosk"]):
-        print(f"[Hearing] {line_str}")
-
+# REMOVED: hearing_line_processor function
+# The new audio client will handle processing and passing the data to `input_handlers` directly.
 
 class FunnelResponseHandler:
     """Handler for funnel responses (including TTS, UI updates, and content filtering)"""
@@ -320,7 +306,7 @@ def main():
     """Start the bot with integrated priority system and secure ngrok."""
     global global_input_funnel
 
-    start_vision_process() # Start the vision process
+    start_vision_process()
     start_ui_server()
     
     # Give UI server time to start before starting ngrok
@@ -381,7 +367,7 @@ def main():
         set_input_funnel(input_funnel)
         print("NOTICE: Desktop audio and vision inputs are now context-only by default")
 
-    start_hearing_system(callback=hearing_line_processor)
+    start_audio_client() # NEW: Start the audio WebSocket client
     start_vision_client()
     init_twitch_bot(funnel=input_funnel)
 
@@ -395,7 +381,7 @@ def main():
         print("Cleaning up resources...")
         if global_input_funnel:
             global_input_funnel.stop()
-        stop_hearing_system()
+        # REMOVED: stop_hearing_system()
         shutdown_priority_system()
         stop_vision_process() # Stop the vision process
         stop_ngrok() # Stop secure ngrok tunnel
