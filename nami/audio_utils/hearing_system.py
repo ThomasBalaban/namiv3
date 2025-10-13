@@ -1,66 +1,103 @@
 import sys
+import asyncio
+import websockets
+import json
 import threading
-import subprocess
-import atexit
-from nami.audio_utils import hearing
-from nami.ui import emit_audio_context
 
 # Global variables
-hearing_process = None
+hearing_websocket = None
+hearing_thread = None
 
-def _output_reader_thread(process, callback):
+def _output_reader_thread(callback):
     """
-    Internal thread function to read subprocess output and invoke a callback.
+    Connect to the audio_mon WebSocket server and process incoming transcriptions.
     """
-    for line in iter(process.stdout.readline, b''):
-        line_str = line.decode('utf-8').rstrip()
-        
-        # Pass the line to the processing function in main.py for routing
-        if callback:
-            try:
-                callback(line_str)
-            except Exception as e:
-                print(f"Error in hearing system callback: {e}")
+    asyncio.run(_websocket_client(callback))
+
+async def _websocket_client(callback):
+    """
+    WebSocket client that connects to the audio_mon server.
+    """
+    uri = "ws://localhost:8003"
+    
+    while True:
+        try:
+            print(f"[HEARING] Connecting to audio_mon server at {uri}...")
+            async with websockets.connect(uri) as websocket:
+                print("[HEARING] ✅ Connected to audio_mon server!")
+                
+                while True:
+                    try:
+                        # Receive message from audio_mon
+                        message_str = await websocket.recv()
+                        data = json.loads(message_str)
+                        
+                        # Extract the data
+                        source = data.get('source', 'unknown')
+                        text = data.get('text', '')
+                        confidence = data.get('confidence', 0.0)
+                        audio_type = data.get('audio_type', 'speech')
+                        
+                        if text:
+                            # Format the output line based on source
+                            if source == 'microphone':
+                                line_str = f"[Microphone Input] {text}"
+                            elif source == 'desktop':
+                                line_str = f"[{audio_type.upper()} {confidence:.2f}] {text}"
+                            else:
+                                line_str = f"[{source}] {text}"
+                            
+                            # Pass to the callback
+                            if callback:
+                                try:
+                                    callback(line_str)
+                                except Exception as e:
+                                    print(f"[HEARING] Error in callback: {e}")
+                                    
+                    except websockets.exceptions.ConnectionClosed:
+                        print("[HEARING] Connection closed by server")
+                        break
+                    except json.JSONDecodeError as e:
+                        print(f"[HEARING] JSON decode error: {e}")
+                    except Exception as e:
+                        print(f"[HEARING] Error processing message: {e}")
+                        
+        except ConnectionRefusedError:
+            print("[HEARING] ❌ Could not connect to audio_mon server")
+            print("[HEARING] Make sure audio_mon is running: cd audio_mon && python main.py")
+            await asyncio.sleep(5)
+        except Exception as e:
+            print(f"[HEARING] Connection error: {e}. Retrying in 5 seconds...")
+            await asyncio.sleep(5)
 
 def start_hearing_system(callback=None):
     """
-    Start the hearing.py script as a subprocess and process its output
-    with a provided callback function.
+    Start the hearing system by connecting to the audio_mon WebSocket server.
+    
+    Args:
+        callback: Function to call with each transcription line
     """
-    global hearing_process
-    # --- FIX: Run hearing.py as a module to resolve relative imports ---
-    cmd = [sys.executable, "-m", "nami.audio_utils.hearing"]
-
-    try:
-        hearing_process = subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            universal_newlines=False,
-            bufsize=0
-        )
-
-        atexit.register(lambda: hearing_process.terminate() if hearing_process else None)
-
-        # Start the thread that reads output and calls our new processor
-        output_thread = threading.Thread(
-            target=_output_reader_thread,
-            args=(hearing_process, callback),
-            daemon=True
-        )
-        output_thread.start()
-
-        print("Hearing system started successfully!")
-        return True
-    except Exception as e:
-        print(f"Error starting hearing system: {e}")
-        return False
+    global hearing_thread
+    
+    print("[HEARING] Starting hearing system (WebSocket client mode)...")
+    print("[HEARING] This will connect to the audio_mon app on ws://localhost:8003")
+    
+    hearing_thread = threading.Thread(
+        target=_output_reader_thread,
+        args=(callback,),
+        daemon=True,
+        name="HearingWebSocketClient"
+    )
+    hearing_thread.start()
+    
+    print("[HEARING] Hearing system thread started")
+    return True
 
 def stop_hearing_system():
-    """Stop the hearing system by sending a terminate signal without waiting."""
-    global hearing_process
-    if hearing_process:
-        print("Sending stop signal to hearing system...")
-        hearing_process.terminate()
-        hearing_process = None
-        print("Hearing system stop signal sent.")
+    """Stop the hearing system"""
+    global hearing_thread
+    
+    print("[HEARING] Stopping hearing system...")
+    # The thread is daemon, so it will stop when the main program exits
+    hearing_thread = None
+    print("[HEARING] Hearing system stopped")
