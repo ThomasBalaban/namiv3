@@ -37,8 +37,7 @@ async def handle_twitch_message(msg, botname="peepingnami"):
         'relevance': 0.5,
     }
 
-    # All Twitch messages, mentions or not, now go through the priority system.
-    # The priority system will correctly identify mentions as high-priority and chat as low-priority context.
+    # All Twitch messages go through the priority system
     if priority_system:
         if is_mention:
             priority_system.add_input(
@@ -54,6 +53,8 @@ async def handle_twitch_message(msg, botname="peepingnami"):
             )
 
 # ====== HEARING SYSTEM HANDLER ======
+# This now processes output from audio_mon via WebSocket
+
 def handle_microphone_input(transcription, confidence=0.7):
     """Process input specifically from microphone"""
     global priority_system
@@ -110,8 +111,7 @@ def handle_desktop_audio_input(transcription, audio_type, confidence):
         'urgency': 0.5 if is_direct else 0.2
     }
     
-    # If a direct mention is heard in desktop audio, treat it as a prompt.
-    # Otherwise, it's just ambient context.
+    # If a direct mention is heard in desktop audio, treat it as a prompt
     if is_direct:
         priority_system.add_input(
             InputSource.DIRECT_MICROPHONE,
@@ -126,7 +126,10 @@ def handle_desktop_audio_input(transcription, audio_type, confidence):
         )
 
 def process_hearing_line(line):
-    """Process a line of output from the hearing system"""
+    """
+    Process a line of output from the audio_mon WebSocket.
+    This is called by the hearing_system callback.
+    """
     if not line.strip():
         return
 
@@ -134,14 +137,14 @@ def process_hearing_line(line):
     source_type = "UNKNOWN"
     transcription = ""
 
+    # Parse microphone input
     if "[Microphone Input]" in line:
         transcription = line.replace("[Microphone Input]", "").strip()
-
         if transcription:
             handle_microphone_input(transcription)
 
+    # Parse desktop audio (speech or music)
     elif any(x in line for x in ["SPEECH", "MUSIC"]):
-
         if "SPEECH" in line:
             source_type = "SPEECH"
             parts = line.split("SPEECH")
@@ -167,10 +170,11 @@ def process_hearing_line(line):
             handle_desktop_audio_input(transcription, source_type, confidence)
 
 # ====== VISION SYSTEM HANDLER ======
+
 def handle_vision_input(analysis_text, confidence, metadata=None):
     """
     Process input from the vision system.
-    FIX: This now ONLY sends data to the priority system for context, it never calls the funnel directly.
+    Only sends data to the priority system for context.
     """
     global priority_system, ENABLE_VISION
 
@@ -195,8 +199,7 @@ def handle_vision_input(analysis_text, confidence, metadata=None):
         'urgency': 0.3 if is_summary else 0.2
     })
 
-    # All vision input now goes through the priority system, which will correctly
-    # score it as low-priority context and not trigger a response.
+    # All vision input goes through the priority system as context
     priority_system.add_input(
         InputSource.VISUAL_CHANGE,
         analysis_text,
@@ -246,6 +249,7 @@ def process_vision_line(line):
     handle_vision_input(analysis_text, confidence, metadata)
 
 # ====== CONSOLE INPUT HANDLER ======
+
 def handle_console_input(text):
     """Process direct console input"""
     global priority_system
@@ -255,7 +259,7 @@ def handle_console_input(text):
 
     # Console input is always a direct prompt
     priority_system.add_input(
-        InputSource.DIRECT_MICROPHONE, # Treated as a direct prompt
+        InputSource.DIRECT_MICROPHONE,
         text,
         {
             'source_type': 'CONSOLE',
