@@ -20,6 +20,8 @@ from nami.input_systems import (
 from nami.ui import start_ui_server, emit_log, emit_bot_reply
 from nami.vision_process_manager import start_vision_process, stop_vision_process
 from nami.tts_utils.content_filter import process_response_for_content
+from nami.audio_process_manager import start_audio_mon_process, stop_audio_mon_process
+from nami.tts_utils.content_filter import process_response_for_content
 
 # Import security config
 from nami.config import (
@@ -320,11 +322,21 @@ def main():
     """Start the bot with integrated priority system and secure ngrok."""
     global global_input_funnel
 
+    # Start audio_mon FIRST
+    print("\n" + "="*60)
+    print("Starting audio_mon process...")
+    print("="*60)
+    if not start_audio_mon_process():
+        print("⚠️ Warning: audio_mon failed to start")
+        print("   You can start it manually in another terminal:")
+        print("   cd /Users/thomasbalaban/Downloads/projects/audio_mon && python main.py")
+        time.sleep(2)
+
     start_vision_process() # Start the vision process
     start_ui_server()
     
     # Give UI server time to start before starting ngrok
-    time.sleep(2)
+    time.sleep(3)
     
     # --- SECURE NGROK WITH CONFIG VALUES ---
     if tts_available:
@@ -398,6 +410,7 @@ def main():
         stop_hearing_system()
         shutdown_priority_system()
         stop_vision_process() # Stop the vision process
+        stop_audio_mon_process()
         stop_ngrok() # Stop secure ngrok tunnel
         print("Shutdown complete.")
 
