@@ -32,3 +32,6 @@ accelerate>=0.25.0
 google-generativeai
 google-cloud-aiplatform
 parakeet-mlx
+httpx
+pydantic
+python-socketio[client]
