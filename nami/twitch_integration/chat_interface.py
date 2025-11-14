@@ -7,7 +7,8 @@ from . import twitch_chat
 from ..config import TARGET_CHANNEL
 from ..bot_core import BOTNAME
 from ..input_systems import handle_twitch_message as process_incoming_message
-from ..ui.server import emit_twitch_message
+# --- REMOVED: Old UI server import ---
+# from ..ui.server import emit_twitch_message 
 from ..tts_utils.text_utils import strip_sound_effects, has_sound_effects
 
 input_funnel = None
@@ -18,16 +19,17 @@ twitch_event_loop = None
 async def handle_twitch_message(msg):
     """
     Handles all incoming Twitch messages.
-    1. Emits the message to the UI for display.
-    2. Passes the message to the centralized input handler for context/reply processing.
+    1. Passes the message to the centralized input handler for context/reply processing.
     """
     async with message_lock:
         # Don't process the bot's own messages
         if msg.user.name.lower() == BOTNAME.lower():
             return
         
-        # Emit every message to the UI so the panel is a true reflection of chat
-        emit_twitch_message(msg.user.name, msg.text)
+        # --- REMOVED: Old UI emit call ---
+        # The director_engine now receives the message from input_handlers
+        # and displays it on the UI automatically.
+        # emit_twitch_message(msg.user.name, msg.text)
 
         # Process the message through the proper input system handler
         # This handler knows how to route mentions vs. regular chat for context

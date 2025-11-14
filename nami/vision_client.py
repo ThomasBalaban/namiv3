@@ -3,8 +3,8 @@ import websockets
 import json
 import threading
 from nami.input_systems.input_handlers import handle_vision_input
-# --- ADDED: Import UI emitter ---
-from nami.ui.server import emit_vision_context
+# --- REMOVED: Import UI emitter ---
+# from nami.ui.server import emit_vision_context
 
 VISION_WEBSOCKET_URL = "ws://localhost:8001"
 
@@ -25,8 +25,10 @@ async def vision_client_listener():
                         metadata = data.get("metadata", {})
                         
                         if analysis_text:
-                            # --- ADDED: Send context to UI ---
-                            emit_vision_context(analysis_text)
+                            # --- REMOVED: Call to old UI server ---
+                            # emit_vision_context(analysis_text)
+                            
+                            # This is the correct function that sends to the Director
                             handle_vision_input(analysis_text, confidence, metadata)
                             
                     except json.JSONDecodeError:
