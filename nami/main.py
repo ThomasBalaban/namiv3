@@ -248,6 +248,8 @@ def main():
         print("CRITICAL ERROR: Director Engine (Brain 1) failed to start. Exiting.")
         return
     
+    time.sleep(10) 
+    
     print("\n" + "="*60)
     print("Starting audio_mon process...")
     print("="*60)
