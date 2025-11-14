@@ -1,11 +1,12 @@
-import os
+# Save as: nami/bot_core.py
+import os # <--- ADDED IMPORT
 import yaml
 import vertexai
 import traceback
 from vertexai.generative_models import GenerativeModel, HarmCategory, HarmBlockThreshold, Part, Content, FunctionDeclaration, Tool
 from google.oauth2 import service_account
 from nami.config import TUNED_MODEL_ID
-from nami.context import get_formatted_context
+from nami.context import get_breadcrumbs_from_director
 
 BOTNAME = "peepingnami"
 
@@ -34,12 +35,20 @@ play_sound_effect_func = FunctionDeclaration(
 sound_effects_tool = Tool(function_declarations=[play_sound_effect_func])
 
 class NamiBot:
-    def __init__(self, config_path='nami/model_in_progress.yaml'):
+    # --- MODIFIED: Set default to None to trigger dynamic path ---
+    def __init__(self, config_path=None):
         """
         Initializes the NamiBot using a service account key for authentication.
         """
         print("Initializing NamiBot with Vertex AI...")
-        self.config_path = config_path
+        
+        # --- MODIFIED: Robust path logic for config file ---
+        if config_path is None:
+            # If no path is given, find it relative to *this* file
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+            self.config_path = os.path.join(base_dir, 'model_in_progress.yaml')
+        else:
+            self.config_path = config_path
 
         # FIX: Load the system prompt BEFORE using it
         self.system_prompt = self._load_system_prompt()
@@ -85,12 +94,13 @@ class NamiBot:
 
         print(f"NamiBot initialization complete. Using model: {TUNED_MODEL_ID}")
 
-    # ADDED: This method was missing
+
     def _load_system_prompt(self):
         """
         Loads the system prompt from the YAML configuration file.
         """
         try:
+            # --- MODIFIED: Uses self.config_path set in __init__ ---
             with open(self.config_path, 'r', encoding='utf-8') as f:
                 config = yaml.safe_load(f)
                 prompt = config.get('SYSTEM', '')
@@ -168,10 +178,22 @@ class NamiBot:
         if not prompt:
             return "I can't respond to an empty prompt, silly.", "No context provided."
 
-        dynamic_context = get_formatted_context()
-        full_prompt_with_context = f"{dynamic_context}\n\nUSER PROMPT: {prompt}"
+        # --- NEW: Get breadcrumbs from Director (Brain 1) ---
+        breadcrumbs = get_breadcrumbs_from_director(count=3)
+        
+        breadcrumb_context = "[Recent Events (most interesting first)]\n"
+        if breadcrumbs:
+            for bc in breadcrumbs:
+                # Round the score for cleaner display
+                score_str = f"{bc.get('score', 0.0):.2f}"
+                breadcrumb_context += f"- {bc['source']}: {bc['text']} (Score: {score_str})\n"
+        else:
+            breadcrumb_context = "[Recent Events: Nothing interesting.]\n"
 
-        # --- FIX: Prepare history for UI display ---
+        # --- MODIFIED: Use breadcrumbs instead of old dynamic_context ---
+        full_prompt_with_context = f"{breadcrumb_context}\nUSER PROMPT: {prompt}"
+
+        # --- (History formatting for UI remains the same) ---
         history_for_ui = "No history yet."
         if self.history:
             history_lines = []

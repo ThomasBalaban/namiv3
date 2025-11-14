@@ -1,11 +1,12 @@
+# Save as: nami/input_systems/priority_core.py
 import time
 import threading
 import queue
 from dataclasses import dataclass
 from enum import Enum, auto
 from typing import Dict, Optional, Any, Callable
-# --- MODIFIED: Import from the new context manager ---
-from ..context import update_vision_context, update_spoken_word_context, update_audio_context, update_twitch_chat_context
+# --- MODIFIED: Removed the import from ..context ---
+# (from ..context import update_vision_context, ...) <--- THIS IS GONE
 
 # Define input source types
 class InputSource(Enum):
@@ -84,21 +85,8 @@ class PrioritySystem:
             
         item = InputItem(source=source, text=text, timestamp=time.time(), metadata=metadata, raw_data=raw_data)
         
-        # --- Route inputs to their respective context updaters ---
-        if item.source == InputSource.DIRECT_MICROPHONE or item.source == InputSource.MICROPHONE:
-            update_spoken_word_context(item.text)
-            print(f"Context updated: {source.name} - {text[:30]}...")
-        elif item.source == InputSource.AMBIENT_AUDIO:
-            update_audio_context(item.text)
-            print(f"Context updated: {source.name} - {text[:30]}...")
-        elif item.source == InputSource.VISUAL_CHANGE:
-            update_vision_context(item.text)
-            print(f"Context updated: {source.name} - {text[:30]}...")
-        # --- FIX: Added TWITCH_MENTION to this condition ---
-        elif item.source == InputSource.TWITCH_CHAT or item.source == InputSource.TWITCH_MENTION:
-            username = item.metadata.get('username', 'Someone')
-            update_twitch_chat_context(username, item.text)
-            print(f"Twitch context updated: {username}: {text[:30]}...")
+        # --- MODIFIED: This entire block is removed ---
+        # All this logic is now in input_handlers.py and sends to the Director
         
         score = self._calculate_score(item)
         item.score = score
@@ -113,6 +101,7 @@ class PrioritySystem:
         if item.source in [InputSource.DIRECT_MICROPHONE, InputSource.TWITCH_MENTION]:
              self.input_queue.put((-score, time.time(), item))
         else:
+            # This should no longer be hit, as handlers send Tier 1 to director.
             print(f"Input logged (context only) - Source: {source.name}, Text: {text[:30]}...")
     
     def _calculate_score(self, item: InputItem) -> float:

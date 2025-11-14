@@ -1,6 +1,10 @@
+# Save as: nami/input_systems/input_handlers.py
+# --- MODIFIED: No longer need asyncio here ---
 from .priority_core import InputSource
 from ..config import ENABLE_DESKTOP_AUDIO, ENABLE_VISION
-from ..ui import emit_spoken_word_context, emit_audio_context
+
+# --- MODIFIED: Import the new connector's send function ---
+from nami.director_connector import send_event
 
 # Global references
 priority_system = None
@@ -17,17 +21,15 @@ def set_input_funnel(funnel):
     input_funnel = funnel
 
 # ====== TWITCH CHAT HANDLER ======
-
 async def handle_twitch_message(msg, botname="peepingnami"):
     """Process incoming Twitch chat messages"""
-    global priority_system, input_funnel
+    global priority_system
 
     if msg.user.name.lower() == botname.lower():
         return
 
     user_message = msg.text
     username = msg.user.name
-
     is_mention = 'nami' in user_message.lower() or 'peepingnami' in user_message.lower()
 
     metadata = {
@@ -37,24 +39,25 @@ async def handle_twitch_message(msg, botname="peepingnami"):
         'relevance': 0.5,
     }
 
-    # All Twitch messages go through the priority system
     if priority_system:
         if is_mention:
+            # --- TIER 3 (Action) ---
             priority_system.add_input(
                 InputSource.TWITCH_MENTION,
                 user_message,
                 metadata
             )
         else:
-            priority_system.add_input(
-                InputSource.TWITCH_CHAT,
-                user_message,
-                metadata
+            # --- TIER 1 (Ambient) ---
+            # --- MODIFIED: Call the thread-safe socket emitter ---
+            send_event(
+                source_str="TWITCH_CHAT",
+                text=user_message,
+                metadata=metadata,
+                username=username
             )
 
 # ====== HEARING SYSTEM HANDLER ======
-# This now processes output from audio_mon via WebSocket
-
 def handle_microphone_input(transcription, confidence=0.7):
     """Process input specifically from microphone"""
     global priority_system
@@ -62,10 +65,7 @@ def handle_microphone_input(transcription, confidence=0.7):
     if not transcription or len(transcription) < 2:
         return
 
-    emit_spoken_word_context(transcription)
-
     is_direct = 'nami' in transcription.lower() or 'peepingnami' in transcription.lower()
-
     metadata = {
         'source_type': "MICROPHONE",
         'confidence': confidence,
@@ -76,18 +76,20 @@ def handle_microphone_input(transcription, confidence=0.7):
 
     if priority_system:
         if is_direct:
+            # --- TIER 3 (Action) ---
             priority_system.add_input(
                 InputSource.DIRECT_MICROPHONE,
                 transcription,
                 metadata
             )
         else:
-            priority_system.add_input(
-                InputSource.MICROPHONE,
-                transcription,
-                metadata
+            # --- TIER 1 (Ambient) ---
+            # --- MODIFIED: Call the thread-safe socket emitter ---
+            send_event(
+                source_str="MICROPHONE",
+                text=transcription,
+                metadata=metadata
             )
-
 
 def handle_desktop_audio_input(transcription, audio_type, confidence):
     """Process input specifically from desktop audio"""
@@ -96,13 +98,10 @@ def handle_desktop_audio_input(transcription, audio_type, confidence):
     if not transcription or len(transcription) < 2:
         return
 
-    emit_audio_context(f"[{audio_type.upper()}] {transcription}")
-
     if not ENABLE_DESKTOP_AUDIO or not priority_system:
         return
 
     is_direct = 'nami' in transcription.lower() or 'peepingnami' in transcription.lower()
-
     metadata = {
         'source_type': audio_type,
         'confidence': confidence,
@@ -111,110 +110,76 @@ def handle_desktop_audio_input(transcription, audio_type, confidence):
         'urgency': 0.5 if is_direct else 0.2
     }
     
-    # If a direct mention is heard in desktop audio, treat it as a prompt
     if is_direct:
+        # --- TIER 3 (Action) ---
         priority_system.add_input(
             InputSource.DIRECT_MICROPHONE,
             transcription,
             metadata
         )
     else:
-        priority_system.add_input(
-            InputSource.AMBIENT_AUDIO,
-            transcription,
-            metadata
+        # --- TIER 1 (Ambient) ---
+        # --- MODIFIED: Call the thread-safe socket emitter ---
+        send_event(
+            source_str="AMBIENT_AUDIO",
+            text=transcription,
+            metadata=metadata
         )
 
 def process_hearing_line(line):
-    """
-    Process a line of output from the audio_mon WebSocket.
-    This is called by the hearing_system callback.
-    """
-    if not line.strip():
-        return
-
+    # (This function is unchanged)
+    if not line.strip(): return
     confidence = 0.7
     source_type = "UNKNOWN"
     transcription = ""
-
-    # Parse microphone input
     if "[Microphone Input]" in line:
         transcription = line.replace("[Microphone Input]", "").strip()
-        if transcription:
-            handle_microphone_input(transcription)
-
-    # Parse desktop audio (speech or music)
+        if transcription: handle_microphone_input(transcription)
     elif any(x in line for x in ["SPEECH", "MUSIC"]):
         if "SPEECH" in line:
             source_type = "SPEECH"
             parts = line.split("SPEECH")
             if len(parts) > 1 and len(parts[1].split("]")) > 0:
-                try:
-                    confidence = float(parts[1].split("]")[0].strip())
-                except:
-                    confidence = 0.7
+                try: confidence = float(parts[1].split("]")[0].strip())
+                except: confidence = 0.7
         elif "MUSIC" in line:
             source_type = "MUSIC"
             parts = line.split("MUSIC")
             if len(parts) > 1 and len(parts[1].split("]")) > 0:
-                try:
-                    confidence = float(parts[1].split("]")[0].strip())
-                except:
-                    confidence = 0.7
-
+                try: confidence = float(parts[1].split("]")[0].strip())
+                except: confidence = 0.7
         parts = line.split("]")
-        if len(parts) > 1:
-            transcription = parts[-1].strip()
-
-        if transcription:
-            handle_desktop_audio_input(transcription, source_type, confidence)
+        if len(parts) > 1: transcription = parts[-1].strip()
+        if transcription: handle_desktop_audio_input(transcription, source_type, confidence)
 
 # ====== VISION SYSTEM HANDLER ======
-
 def handle_vision_input(analysis_text, confidence, metadata=None):
-    """
-    Process input from the vision system.
-    Only sends data to the priority system for context.
-    """
     global priority_system, ENABLE_VISION
-
-    if not ENABLE_VISION or not priority_system:
-        return
-
-    if not analysis_text or len(analysis_text) < 2:
-        return
-
+    if not ENABLE_VISION or not priority_system: return
+    if not analysis_text or len(analysis_text) < 2: return
     is_summary = metadata.get('type') == 'summary' if metadata else False
-
-    if confidence < 0.5 and not is_summary:
-        return
-
-    if metadata is None:
-        metadata = {}
-
+    if confidence < 0.5 and not is_summary: return
+    if metadata is None: metadata = {}
     metadata.update({
         'confidence': confidence,
         'is_summary': is_summary,
         'relevance': confidence * (1.5 if is_summary else 1.0),
         'urgency': 0.3 if is_summary else 0.2
     })
-
-    # All vision input goes through the priority system as context
-    priority_system.add_input(
-        InputSource.VISUAL_CHANGE,
-        analysis_text,
-        metadata
+    # --- TIER 1 (Ambient) ---
+    # --- MODIFIED: Call the thread-safe socket emitter ---
+    send_event(
+        source_str="VISUAL_CHANGE",
+        text=analysis_text,
+        metadata=metadata
     )
 
 def process_vision_line(line):
-    """Process a line of output from the vision system"""
-    if not line.strip():
-        return
-
+    # (This function is unchanged)
+    if not line.strip(): return
     is_summary = False
     confidence = 0.7
     analysis_text = ""
-
     if "[VISION] 👁️" in line:
         analysis_text = line.replace("[VISION] 👁️", "").strip()
     elif "[SUMMARY]" in line or "[Summary]" in line:
@@ -229,43 +194,23 @@ def process_vision_line(line):
             time_part = parts[0].strip()
             content_part = parts[1].strip()
             analysis_text = content_part.strip()
-
             try:
                 proc_time = float(time_part)
                 confidence = min(0.95, max(0.5, 1.0 - (proc_time / 10.0)))
-            except ValueError:
-                pass
+            except ValueError: pass
     else:
         analysis_text = line.strip()
-
-    if not analysis_text:
-        return
-
-    metadata = {
-        'type': 'summary' if is_summary else 'analysis',
-        'source_type': 'VISION'
-    }
-
+    if not analysis_text: return
+    metadata = {'type': 'summary' if is_summary else 'analysis', 'source_type': 'VISION'}
     handle_vision_input(analysis_text, confidence, metadata)
 
 # ====== CONSOLE INPUT HANDLER ======
-
 def handle_console_input(text):
-    """Process direct console input"""
     global priority_system
-
-    if not text.strip() or not priority_system:
-        return
-
-    # Console input is always a direct prompt
+    if not text.strip() or not priority_system: return
+    # Console input is always a TIER 3 (Action)
     priority_system.add_input(
         InputSource.DIRECT_MICROPHONE,
         text,
-        {
-            'source_type': 'CONSOLE',
-            'confidence': 1.0,
-            'is_direct': True,
-            'relevance': 0.9,
-            'urgency': 0.6
-        }
+        {'source_type': 'CONSOLE', 'confidence': 1.0, 'is_direct': True, 'relevance': 0.9, 'urgency': 0.6}
     )
