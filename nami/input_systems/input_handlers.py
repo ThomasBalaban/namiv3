@@ -1,5 +1,4 @@
 # Save as: nami/input_systems/input_handlers.py
-# --- MODIFIED: No longer need asyncio here ---
 from .priority_core import InputSource
 from ..config import ENABLE_DESKTOP_AUDIO, ENABLE_VISION
 
@@ -42,14 +41,25 @@ async def handle_twitch_message(msg, botname="peepingnami"):
     if priority_system:
         if is_mention:
             # --- TIER 3 (Action) ---
+            
+            # 1. Send to Nami's brain (Brain 2) to trigger a reply
             priority_system.add_input(
                 InputSource.TWITCH_MENTION,
                 user_message,
                 metadata
             )
+            
+            # 2. (NEW) Also send to Director (Brain 1) to show on the UI
+            send_event(
+                source_str="TWITCH_MENTION", # Use "MENTION" source type
+                text=user_message,
+                metadata=metadata,
+                username=username
+            )
         else:
             # --- TIER 1 (Ambient) ---
-            # --- MODIFIED: Call the thread-safe socket emitter ---
+            
+            # 1. Send to Director (Brain 1) only
             send_event(
                 source_str="TWITCH_CHAT",
                 text=user_message,
@@ -77,14 +87,24 @@ def handle_microphone_input(transcription, confidence=0.7):
     if priority_system:
         if is_direct:
             # --- TIER 3 (Action) ---
+            
+            # 1. Send to Nami's brain (Brain 2) to trigger a reply
             priority_system.add_input(
                 InputSource.DIRECT_MICROPHONE,
                 transcription,
                 metadata
             )
+            
+            # 2. (NEW) Also send to Director (Brain 1) to show on the UI
+            send_event(
+                source_str="DIRECT_MICROPHONE", # Use the "DIRECT" source type
+                text=transcription,
+                metadata=metadata
+            )
         else:
             # --- TIER 1 (Ambient) ---
-            # --- MODIFIED: Call the thread-safe socket emitter ---
+            
+            # 1. Send to Director (Brain 1) only
             send_event(
                 source_str="MICROPHONE",
                 text=transcription,
@@ -110,16 +130,27 @@ def handle_desktop_audio_input(transcription, audio_type, confidence):
         'urgency': 0.5 if is_direct else 0.2
     }
     
+    # --- MODIFIED: Also check for direct mentions in desktop audio ---
     if is_direct:
         # --- TIER 3 (Action) ---
+        
+        # 1. Send to Nami's brain (Brain 2)
         priority_system.add_input(
-            InputSource.DIRECT_MICROPHONE,
+            InputSource.DIRECT_MICROPHONE, # Treat as direct mention
             transcription,
             metadata
         )
+        
+        # 2. (NEW) Also send to Director (Brain 1)
+        send_event(
+            source_str="DIRECT_MICROPHONE", # Use "DIRECT" source type
+            text=transcription,
+            metadata=metadata
+        )
     else:
         # --- TIER 1 (Ambient) ---
-        # --- MODIFIED: Call the thread-safe socket emitter ---
+        
+        # 1. Send to Director (Brain 1) only
         send_event(
             source_str="AMBIENT_AUDIO",
             text=transcription,
@@ -154,6 +185,7 @@ def process_hearing_line(line):
 
 # ====== VISION SYSTEM HANDLER ======
 def handle_vision_input(analysis_text, confidence, metadata=None):
+    # (This function is unchanged, it *already* sends all info to Director)
     global priority_system, ENABLE_VISION
     if not ENABLE_VISION or not priority_system: return
     if not analysis_text or len(analysis_text) < 2: return
@@ -166,8 +198,7 @@ def handle_vision_input(analysis_text, confidence, metadata=None):
         'relevance': confidence * (1.5 if is_summary else 1.0),
         'urgency': 0.3 if is_summary else 0.2
     })
-    # --- TIER 1 (Ambient) ---
-    # --- MODIFIED: Call the thread-safe socket emitter ---
+    
     send_event(
         source_str="VISUAL_CHANGE",
         text=analysis_text,
@@ -206,9 +237,10 @@ def process_vision_line(line):
 
 # ====== CONSOLE INPUT HANDLER ======
 def handle_console_input(text):
+    # (This function is unchanged, as console input is only for Nami)
     global priority_system
     if not text.strip() or not priority_system: return
-    # Console input is always a TIER 3 (Action)
+    
     priority_system.add_input(
         InputSource.DIRECT_MICROPHONE,
         text,

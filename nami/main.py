@@ -4,7 +4,6 @@ import asyncio
 from fastapi import FastAPI
 from pydantic import BaseModel, Field
 from typing import Dict, Any, Optional
-
 import sys
 import threading
 import os
@@ -29,8 +28,8 @@ from nami.tts_utils.content_filter import process_response_for_content
 from nami.audio_process_manager import start_audio_mon_process, stop_audio_mon_process
 from nami.director_process_manager import start_director_process, stop_director_process
 from nami.tts_utils.content_filter import process_response_for_content
-# --- MODIFIED: Import the new connector ---
-from nami.director_connector import start_connector_thread, stop_connector
+# --- MODIFIED: Import the new reply function ---
+from nami.director_connector import start_connector_thread, stop_connector, send_bot_reply
 
 from nami.config import (
     NGROK_AUTH_ENABLED, 
@@ -60,16 +59,14 @@ except ImportError:
 global_input_funnel = None
 ngrok_process = None
 
-# --- (start_ngrok_tunnel, stop_ngrok, check_tunnel_security are all unchanged) ---
+# --- (All functions from start_ngrok_tunnel to hearing_line_processor are unchanged) ---
 def start_ngrok_tunnel():
     global ngrok_process
-    if SECURITY_NOTIFICATIONS:
-        print("🔒 Starting secure ngrok tunnel for sound effects...")
+    if SECURITY_NOTIFICATIONS: print("🔒 Starting secure ngrok tunnel for sound effects...")
     try:
-        cmd = ["ngrok", "http", "8002"] # Points to Director Engine
+        cmd = ["ngrok", "http", "8002"]
         if NGROK_AUTH_ENABLED and NGROK_AUTH_USERNAME and NGROK_AUTH_PASSWORD:
-            auth_string = f"{NGROK_AUTH_USERNAME}:{NGROK_AUTH_PASSWORD}"
-            cmd.extend(["-auth", auth_string])
+            cmd.extend(["-auth", f"{NGROK_AUTH_USERNAME}:{NGROK_AUTH_PASSWORD}"])
         if NGROK_BIND_TLS: cmd.append("-bind-tls=true")
         if not NGROK_INSPECT: cmd.append("-inspect=false")
         cmd.extend(["--log=stdout"])
@@ -79,9 +76,7 @@ def start_ngrok_tunnel():
         tunnels = response.json()
         if tunnels.get("tunnels"):
             public_url = tunnels["tunnels"][0]["public_url"]
-            if SECURITY_NOTIFICATIONS:
-                print(f"✅ Secure tunnel active: {public_url}")
-                print(f"   (Pointing to Director Engine on port 8002)")
+            if SECURITY_NOTIFICATIONS: print(f"✅ Secure tunnel active: {public_url} (to Director @ 8002)")
             return public_url
         else:
             print("❌ No ngrok tunnels found")
@@ -122,7 +117,6 @@ def check_tunnel_security():
         if SECURITY_NOTIFICATIONS: print(f"❌ Error checking tunnel security: {e}")
         return False
 
-# --- (hearing_line_processor is unchanged) ---
 def hearing_line_processor(line_str):
     if ("[Microphone Input]" in line_str or
         ("]" in line_str and any(x in line_str for x in ["SPEECH", "MUSIC"]))):
@@ -136,7 +130,7 @@ def hearing_line_processor(line_str):
     elif any(x in line_str for x in ["Loading", "Starting", "Initializing", "Error", "Vosk"]):
         print(f"[Hearing] {line_str}")
 
-# --- (FunnelResponseHandler is unchanged) ---
+# --- MODIFIED: This class is updated to send replies back to the Director ---
 class FunnelResponseHandler:
     def __init__(self, generation_func=None, playback_func=None):
         self.generation_func = generation_func
@@ -146,10 +140,12 @@ class FunnelResponseHandler:
         if not response:
             print("Empty response received")
             return
-        
+
         filtered_content = process_response_for_content(response)
+        
         tts_version = filtered_content['tts_version']
         twitch_version = filtered_content['twitch_version'] 
+        ui_version = filtered_content['ui_version'] # This is the original, unfiltered text
         is_censored = filtered_content['is_censored']
 
         if is_censored:
@@ -157,8 +153,22 @@ class FunnelResponseHandler:
             print(f"[BOT - CENSORED] Sending: {tts_version}")
         else:
             print(f"\n[BOT] {tts_version}")
+        
         print("You: ", end="", flush=True)
 
+        # --- THIS IS THE FIX ---
+        # Send the reply back to the Director Engine for UI display
+        try:
+            send_bot_reply(
+                reply=ui_version, # Send the original reply for the UI
+                prompt=prompt_details,
+                is_censored=is_censored
+            )
+        except Exception as e:
+            print(f"🔥 Error sending reply to Director: {e}")
+        # ----------------------
+
+        # --- (Twitch and TTS logic is unchanged) ---
         try:
             source = source_info.get('source')
             if source in ['TWITCH_MENTION', 'DIRECT_MICROPHONE'] or source.startswith('DIRECTOR_'):
@@ -184,7 +194,7 @@ class FunnelResponseHandler:
             except Exception as e:
                 print(f"[TTS] Error processing TTS: {e}")
 
-# --- (console_input_loop is unchanged) ---
+# --- (console_input_loop and Interjection Server are unchanged) ---
 def console_input_loop():
     print(f"{BOTNAME} is ready. Start chatting!")
     while True:
@@ -196,7 +206,6 @@ def console_input_loop():
             print(f"Error in console loop: {e}")
             break
 
-# --- (Interjection Server is unchanged) ---
 interjection_app = FastAPI()
 INTERJECTION_PORT = 8000
 class InterjectionPayload(BaseModel):
