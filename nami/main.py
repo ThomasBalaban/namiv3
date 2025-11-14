@@ -28,8 +28,7 @@ from nami.tts_utils.content_filter import process_response_for_content
 from nami.audio_process_manager import start_audio_mon_process, stop_audio_mon_process
 from nami.director_process_manager import start_director_process, stop_director_process
 from nami.tts_utils.content_filter import process_response_for_content
-# --- MODIFIED: Import the new reply function ---
-from nami.director_connector import start_connector_thread, stop_connector, send_bot_reply
+from nami.director_connector import start_connector_thread, stop_connector, send_bot_reply, send_event
 
 from nami.config import (
     NGROK_AUTH_ENABLED, 
@@ -59,7 +58,7 @@ except ImportError:
 global_input_funnel = None
 ngrok_process = None
 
-# --- (All functions from start_ngrok_tunnel to hearing_line_processor are unchanged) ---
+# --- (All functions from start_ngrok_tunnel to console_input_loop are unchanged) ---
 def start_ngrok_tunnel():
     global ngrok_process
     if SECURITY_NOTIFICATIONS: print("🔒 Starting secure ngrok tunnel for sound effects...")
@@ -130,7 +129,6 @@ def hearing_line_processor(line_str):
     elif any(x in line_str for x in ["Loading", "Starting", "Initializing", "Error", "Vosk"]):
         print(f"[Hearing] {line_str}")
 
-# --- MODIFIED: This class is updated to send replies back to the Director ---
 class FunnelResponseHandler:
     def __init__(self, generation_func=None, playback_func=None):
         self.generation_func = generation_func
@@ -140,12 +138,11 @@ class FunnelResponseHandler:
         if not response:
             print("Empty response received")
             return
-
-        filtered_content = process_response_for_content(response)
         
+        filtered_content = process_response_for_content(response)
         tts_version = filtered_content['tts_version']
         twitch_version = filtered_content['twitch_version'] 
-        ui_version = filtered_content['ui_version'] # This is the original, unfiltered text
+        ui_version = filtered_content['ui_version']
         is_censored = filtered_content['is_censored']
 
         if is_censored:
@@ -153,22 +150,17 @@ class FunnelResponseHandler:
             print(f"[BOT - CENSORED] Sending: {tts_version}")
         else:
             print(f"\n[BOT] {tts_version}")
-        
         print("You: ", end="", flush=True)
 
-        # --- THIS IS THE FIX ---
-        # Send the reply back to the Director Engine for UI display
         try:
             send_bot_reply(
-                reply=ui_version, # Send the original reply for the UI
+                reply=ui_version,
                 prompt=prompt_details,
                 is_censored=is_censored
             )
         except Exception as e:
             print(f"🔥 Error sending reply to Director: {e}")
-        # ----------------------
 
-        # --- (Twitch and TTS logic is unchanged) ---
         try:
             source = source_info.get('source')
             if source in ['TWITCH_MENTION', 'DIRECT_MICROPHONE'] or source.startswith('DIRECTOR_'):
@@ -177,7 +169,15 @@ class FunnelResponseHandler:
                     twitch_response = f"@{username} {twitch_version}"
                 else:
                     twitch_response = twitch_version
+                
                 send_to_twitch_sync(twitch_response)
+                
+                send_event(
+                    source_str="BOT_TWITCH_REPLY",
+                    text=twitch_response,
+                    metadata={"username": BOTNAME},
+                    username=BOTNAME
+                )
         except Exception as e:
             print(f"[TWITCH] Error sending response: {e}")
 
@@ -194,7 +194,6 @@ class FunnelResponseHandler:
             except Exception as e:
                 print(f"[TTS] Error processing TTS: {e}")
 
-# --- (console_input_loop and Interjection Server are unchanged) ---
 def console_input_loop():
     print(f"{BOTNAME} is ready. Start chatting!")
     while True:
@@ -237,10 +236,11 @@ def start_interjection_server_thread():
     server_thread.start()
     print("Interjection server thread started.")
 
-# --- (main() is updated to start/stop the new connector) ---
+# --- THIS IS THE FIX: Re-ordering the main() function ---
 def main():
     global global_input_funnel
     
+    # --- STEP 1: Start all external server subprocesses ---
     print("\n" + "="*60)
     print("Starting Director Engine (Brain 1)...")
     print("="*60)
@@ -255,17 +255,29 @@ def main():
         print("⚠️ Warning: audio_mon failed to start")
         time.sleep(2)
 
+    print("\n" + "="*60)
+    print("Starting vision_app process...")
+    print("="*60)
     start_vision_process()
+    
+    # --- STEP 2: Start Nami's *own* server ---
     start_interjection_server_thread()
     
-    # --- ADDED: Start the Socket.IO client connector ---
+    # --- STEP 3: Give all servers a generous 5s to boot up ---
+    print("\nGiving all servers 5 seconds to initialize...")
+    time.sleep(5)
+    print("Servers are assumed to be ready.")
+    
+    # --- STEP 4: Start all *clients* that connect to the servers ---
     print("\n" + "="*60)
     print("Starting Director Connector (Brain 2 -> Brain 1)...")
     print("="*60)
-    start_connector_thread()
+    start_connector_thread() # Connects to Director
     
-    time.sleep(3) # Give all servers time to start
-    
+    start_hearing_system(callback=hearing_line_processor) # Connects to audio_mon
+    start_vision_client() # Connects to vision_app
+
+    # --- STEP 5: Start other services (Ngrok, Input Funnel) ---
     if tts_available:
         ngrok_url = start_ngrok_tunnel()
         if ngrok_url:
@@ -307,11 +319,12 @@ def main():
         set_input_funnel(input_funnel)
         print("NOTICE: Desktop audio and vision inputs are now context-only (sent to Director).")
 
-    start_hearing_system(callback=hearing_line_processor)
-    start_vision_client()
+    # --- STEP 6: Start the final client (Twitch) ---
     init_twitch_bot(funnel=input_funnel)
 
+    print("\n" + "="*60)
     print("System initialization complete, ready for input")
+    print("="*60)
 
     try:
         console_input_loop()
@@ -327,7 +340,6 @@ def main():
         stop_audio_mon_process()
         stop_director_process()
         stop_ngrok()
-        # --- MODIFIED: Stop the new connector ---
         stop_connector()
         print("Shutdown complete.")
 
