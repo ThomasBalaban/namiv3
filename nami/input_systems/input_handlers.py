@@ -1,9 +1,6 @@
 # Save as: nami/input_systems/input_handlers.py
-# --- MODIFIED: No longer need asyncio here ---
 from .priority_core import InputSource
 from ..config import ENABLE_DESKTOP_AUDIO, ENABLE_VISION
-
-# --- MODIFIED: Import the new connector's send function ---
 from nami.director_connector import send_event
 
 # Global references
@@ -38,24 +35,22 @@ async def handle_twitch_message(msg, botname="peepingnami"):
         'message_length': len(user_message),
         'relevance': 0.5,
     }
+    
+    # Always send to Director so it shows in UI
+    send_event(
+        source_str="TWITCH_MENTION" if is_mention else "TWITCH_CHAT",
+        text=user_message,
+        metadata=metadata,
+        username=username
+    )
 
-    if priority_system:
-        if is_mention:
-            # --- TIER 3 (Action) ---
-            priority_system.add_input(
-                InputSource.TWITCH_MENTION,
-                user_message,
-                metadata
-            )
-        else:
-            # --- TIER 1 (Ambient) ---
-            # --- MODIFIED: Call the thread-safe socket emitter ---
-            send_event(
-                source_str="TWITCH_CHAT",
-                text=user_message,
-                metadata=metadata,
-                username=username
-            )
+    if priority_system and is_mention:
+        # --- TIER 3 (Action) ---
+        priority_system.add_input(
+            InputSource.TWITCH_MENTION,
+            user_message,
+            metadata
+        )
 
 # ====== HEARING SYSTEM HANDLER ======
 def handle_microphone_input(transcription, confidence=0.7):
@@ -74,22 +69,20 @@ def handle_microphone_input(transcription, confidence=0.7):
         'urgency': 0.5 if is_direct else 0.2
     }
 
-    if priority_system:
-        if is_direct:
-            # --- TIER 3 (Action) ---
-            priority_system.add_input(
-                InputSource.DIRECT_MICROPHONE,
-                transcription,
-                metadata
-            )
-        else:
-            # --- TIER 1 (Ambient) ---
-            # --- MODIFIED: Call the thread-safe socket emitter ---
-            send_event(
-                source_str="MICROPHONE",
-                text=transcription,
-                metadata=metadata
-            )
+    # --- MODIFIED: Always send to Director for UI visibility ---
+    send_event(
+        source_str="DIRECT_MICROPHONE" if is_direct else "MICROPHONE",
+        text=transcription,
+        metadata=metadata
+    )
+
+    if priority_system and is_direct:
+        # --- TIER 3 (Action) ---
+        priority_system.add_input(
+            InputSource.DIRECT_MICROPHONE,
+            transcription,
+            metadata
+        )
 
 def handle_desktop_audio_input(transcription, audio_type, confidence):
     """Process input specifically from desktop audio"""
@@ -98,7 +91,7 @@ def handle_desktop_audio_input(transcription, audio_type, confidence):
     if not transcription or len(transcription) < 2:
         return
 
-    if not ENABLE_DESKTOP_AUDIO or not priority_system:
+    if not ENABLE_DESKTOP_AUDIO:
         return
 
     is_direct = 'nami' in transcription.lower() or 'peepingnami' in transcription.lower()
@@ -110,24 +103,22 @@ def handle_desktop_audio_input(transcription, audio_type, confidence):
         'urgency': 0.5 if is_direct else 0.2
     }
     
-    if is_direct:
+    # Send to Director for UI / Context
+    send_event(
+        source_str="AMBIENT_AUDIO",
+        text=transcription,
+        metadata=metadata
+    )
+    
+    if is_direct and priority_system:
         # --- TIER 3 (Action) ---
         priority_system.add_input(
             InputSource.DIRECT_MICROPHONE,
             transcription,
             metadata
         )
-    else:
-        # --- TIER 1 (Ambient) ---
-        # --- MODIFIED: Call the thread-safe socket emitter ---
-        send_event(
-            source_str="AMBIENT_AUDIO",
-            text=transcription,
-            metadata=metadata
-        )
 
 def process_hearing_line(line):
-    # (This function is unchanged)
     if not line.strip(): return
     confidence = 0.7
     source_type = "UNKNOWN"
@@ -155,7 +146,7 @@ def process_hearing_line(line):
 # ====== VISION SYSTEM HANDLER ======
 def handle_vision_input(analysis_text, confidence, metadata=None):
     global priority_system, ENABLE_VISION
-    if not ENABLE_VISION or not priority_system: return
+    if not ENABLE_VISION: return
     if not analysis_text or len(analysis_text) < 2: return
     is_summary = metadata.get('type') == 'summary' if metadata else False
     if confidence < 0.5 and not is_summary: return
@@ -166,8 +157,8 @@ def handle_vision_input(analysis_text, confidence, metadata=None):
         'relevance': confidence * (1.5 if is_summary else 1.0),
         'urgency': 0.3 if is_summary else 0.2
     })
-    # --- TIER 1 (Ambient) ---
-    # --- MODIFIED: Call the thread-safe socket emitter ---
+    
+    # Send to Director for UI / Context
     send_event(
         source_str="VISUAL_CHANGE",
         text=analysis_text,
@@ -175,7 +166,6 @@ def handle_vision_input(analysis_text, confidence, metadata=None):
     )
 
 def process_vision_line(line):
-    # (This function is unchanged)
     if not line.strip(): return
     is_summary = False
     confidence = 0.7
@@ -208,7 +198,6 @@ def process_vision_line(line):
 def handle_console_input(text):
     global priority_system
     if not text.strip() or not priority_system: return
-    # Console input is always a TIER 3 (Action)
     priority_system.add_input(
         InputSource.DIRECT_MICROPHONE,
         text,

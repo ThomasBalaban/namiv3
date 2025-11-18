@@ -28,9 +28,8 @@ from nami.vision_process_manager import start_vision_process, stop_vision_proces
 from nami.tts_utils.content_filter import process_response_for_content
 from nami.audio_process_manager import start_audio_mon_process, stop_audio_mon_process
 from nami.director_process_manager import start_director_process, stop_director_process
-from nami.tts_utils.content_filter import process_response_for_content
-# --- MODIFIED: Import the new connector ---
-from nami.director_connector import start_connector_thread, stop_connector
+# --- MODIFIED: Import send_bot_reply ---
+from nami.director_connector import start_connector_thread, stop_connector, send_bot_reply
 
 from nami.config import (
     NGROK_AUTH_ENABLED, 
@@ -60,7 +59,6 @@ except ImportError:
 global_input_funnel = None
 ngrok_process = None
 
-# --- (start_ngrok_tunnel, stop_ngrok, check_tunnel_security are all unchanged) ---
 def start_ngrok_tunnel():
     global ngrok_process
     if SECURITY_NOTIFICATIONS:
@@ -122,7 +120,6 @@ def check_tunnel_security():
         if SECURITY_NOTIFICATIONS: print(f"❌ Error checking tunnel security: {e}")
         return False
 
-# --- (hearing_line_processor is unchanged) ---
 def hearing_line_processor(line_str):
     if ("[Microphone Input]" in line_str or
         ("]" in line_str and any(x in line_str for x in ["SPEECH", "MUSIC"]))):
@@ -136,7 +133,6 @@ def hearing_line_processor(line_str):
     elif any(x in line_str for x in ["Loading", "Starting", "Initializing", "Error", "Vosk"]):
         print(f"[Hearing] {line_str}")
 
-# --- (FunnelResponseHandler is unchanged) ---
 class FunnelResponseHandler:
     def __init__(self, generation_func=None, playback_func=None):
         self.generation_func = generation_func
@@ -158,6 +154,9 @@ class FunnelResponseHandler:
         else:
             print(f"\n[BOT] {tts_version}")
         print("You: ", end="", flush=True)
+
+        # --- MODIFIED: Send to Director UI via Connector ---
+        send_bot_reply(tts_version, prompt_details or "", is_censored)
 
         try:
             source = source_info.get('source')
@@ -184,7 +183,6 @@ class FunnelResponseHandler:
             except Exception as e:
                 print(f"[TTS] Error processing TTS: {e}")
 
-# --- (console_input_loop is unchanged) ---
 def console_input_loop():
     print(f"{BOTNAME} is ready. Start chatting!")
     while True:
@@ -196,7 +194,6 @@ def console_input_loop():
             print(f"Error in console loop: {e}")
             break
 
-# --- (Interjection Server is unchanged) ---
 interjection_app = FastAPI()
 INTERJECTION_PORT = 8000
 class InterjectionPayload(BaseModel):
@@ -228,7 +225,6 @@ def start_interjection_server_thread():
     server_thread.start()
     print("Interjection server thread started.")
 
-# --- (main() is updated to start/stop the new connector) ---
 def main():
     global global_input_funnel
     
@@ -249,13 +245,12 @@ def main():
     start_vision_process()
     start_interjection_server_thread()
     
-    # --- ADDED: Start the Socket.IO client connector ---
     print("\n" + "="*60)
     print("Starting Director Connector (Brain 2 -> Brain 1)...")
     print("="*60)
     start_connector_thread()
     
-    time.sleep(3) # Give all servers time to start
+    time.sleep(3) 
     
     if tts_available:
         ngrok_url = start_ngrok_tunnel()
@@ -318,7 +313,6 @@ def main():
         stop_audio_mon_process()
         stop_director_process()
         stop_ngrok()
-        # --- MODIFIED: Stop the new connector ---
         stop_connector()
         print("Shutdown complete.")
 

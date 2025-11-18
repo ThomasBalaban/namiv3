@@ -114,6 +114,10 @@ class InputFunnel:
                 print(f"\nProcessing input via funnel: {item.content[:50]}...")
                 
                 try:
+                    # --- ADDED: Explicitly print the formatted input ---
+                    print(f"[INPUT] {item.content}")
+                    # --- END ADDITION ---
+                    
                     # Get response from bot
                     self.last_prompt_time = time.time()
                     if self.bot_callback and not self.shutdown_requested:

@@ -63,11 +63,8 @@ def send_event(
 ):
     """
     Sends an event to the Director Engine via Socket.IO.
-    This is thread-safe and non-blocking.
     """
     if not sio.connected:
-        # Don't flood logs if director is down
-        # print("[DirectorConnector] Not connected, cannot send event.")
         return
 
     payload = {
@@ -78,8 +75,23 @@ def send_event(
     }
     
     try:
-        # .emit() is thread-safe
         sio.emit("event", payload)
-        # print(f"Sent event: {source_str}") # Optional: for debugging
     except Exception as e:
         print(f"[DirectorConnector] Error sending event: {e}")
+
+# --- NEW FUNCTION ---
+def send_bot_reply(reply_text, prompt_text="", is_censored=False):
+    """Sends a bot reply to the Director Engine for UI display."""
+    if not sio.connected:
+        return
+
+    payload = {
+        "reply": reply_text,
+        "prompt": prompt_text,
+        "is_censored": is_censored
+    }
+    
+    try:
+        sio.emit("bot_reply", payload)
+    except Exception as e:
+        print(f"[DirectorConnector] Error sending bot reply: {e}")
