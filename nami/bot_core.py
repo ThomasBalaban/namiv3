@@ -1,5 +1,5 @@
 # Save as: nami/bot_core.py
-import os # <--- ADDED IMPORT
+import os
 import yaml
 import vertexai
 import traceback
@@ -35,22 +35,18 @@ play_sound_effect_func = FunctionDeclaration(
 sound_effects_tool = Tool(function_declarations=[play_sound_effect_func])
 
 class NamiBot:
-    # --- MODIFIED: Set default to None to trigger dynamic path ---
     def __init__(self, config_path=None):
         """
         Initializes the NamiBot using a service account key for authentication.
         """
         print("Initializing NamiBot with Vertex AI...")
         
-        # --- MODIFIED: Robust path logic for config file ---
         if config_path is None:
-            # If no path is given, find it relative to *this* file
             base_dir = os.path.dirname(os.path.abspath(__file__))
             self.config_path = os.path.join(base_dir, 'model_in_progress.yaml')
         else:
             self.config_path = config_path
 
-        # FIX: Load the system prompt BEFORE using it
         self.system_prompt = self._load_system_prompt()
 
         try:
@@ -72,7 +68,6 @@ class NamiBot:
         vertexai.init(project=project_id, location=location, credentials=credentials)
         print("Vertex AI initialized successfully.")
 
-        # FIX: Set safety settings to BLOCK_NONE to be less restrictive
         self.safety_settings = {
             HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
             HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
@@ -81,31 +76,26 @@ class NamiBot:
         }
 
         print(f"Creating model with ID: {TUNED_MODEL_ID}")
-        # NEW LOGIC: Remove the tools argument entirely.
         self.model = GenerativeModel(
             model_name=TUNED_MODEL_ID,
             system_instruction=self.system_prompt,
             safety_settings=self.safety_settings
         )
 
-        # This will store our conversation history manually
         self.history = []
-        self.max_history_length = 20  # 10 pairs of user/model messages
+        self.max_history_length = 20
 
         print(f"NamiBot initialization complete. Using model: {TUNED_MODEL_ID}")
-
 
     def _load_system_prompt(self):
         """
         Loads the system prompt from the YAML configuration file.
         """
         try:
-            # --- MODIFIED: Uses self.config_path set in __init__ ---
             with open(self.config_path, 'r', encoding='utf-8') as f:
                 config = yaml.safe_load(f)
                 prompt = config.get('SYSTEM', '')
                 if not prompt:
-                     # Fallback for the other yaml file format
                      prompt = config
                 print(f"Loaded system prompt from {self.config_path}")
                 return prompt
@@ -116,84 +106,52 @@ class NamiBot:
             print(f"Error loading system prompt: {e}")
             return ""
 
-    def _handle_function_calls(self, response):
-        """Handle function calls from the model response"""
-        if not response.candidates or not response.candidates[0].content.parts:
-            return None
-            
-        function_calls = []
-        text_parts = []
-        
-        for part in response.candidates[0].content.parts:
-            if hasattr(part, 'function_call') and part.function_call:
-                # Handle function call
-                func_call = part.function_call
-                if func_call.name == "play_sound_effect":
-                    effect_name = func_call.args.get("effect_name", "")
-                    context = func_call.args.get("context", "")
-                    
-                    print(f"🔊 Function call: play_sound_effect({effect_name})")
-                    
-                    # Actually play the sound effect
-                    self._execute_sound_effect(effect_name, context)
-                    
-                    function_calls.append({
-                        'name': func_call.name,
-                        'args': dict(func_call.args)
-                    })
-            elif hasattr(part, 'text') and part.text:
-                text_parts.append(part.text)
-                
-        return {
-            'text': ''.join(text_parts),
-            'function_calls': function_calls
-        }
-
-    def _execute_sound_effect(self, effect_name, context=""):
-        """Actually execute the sound effect"""
-        try:
-            # Import here to avoid circular imports
-            from nami.tts_utils.sfx_player import play_sound_effect_threaded
-            
-            print(f"🎵 Playing sound effect: {effect_name}")
-            if context:
-                print(f"   Context: {context}")
-                
-            success = play_sound_effect_threaded(effect_name)
-            if success:
-                print(f"✅ Sound effect '{effect_name}' played successfully")
-            else:
-                print(f"❌ Failed to play sound effect '{effect_name}'")
-                
-        except ImportError:
-            print(f"⚠️ Sound effect system not available - would play '{effect_name}'")
-        except Exception as e:
-            print(f"❌ Error playing sound effect '{effect_name}': {e}")
-
     def generate_response(self, prompt):
         """
         Generates a response using a stateless generate_content call,
-        including dynamic context and conversation history.
+        including dynamic context, memory, and prediction.
         """
         if not prompt:
             return "I can't respond to an empty prompt, silly.", "No context provided."
 
         # --- NEW: Get breadcrumbs from Director (Brain 1) ---
-        breadcrumbs = get_breadcrumbs_from_director(count=3)
+        # This now returns a DICT with keys: 'recent_events', 'memories', 'prediction'
+        director_data = get_breadcrumbs_from_director(count=3)
         
-        breadcrumb_context = "[Recent Events (most interesting first)]\n"
-        if breadcrumbs:
-            for bc in breadcrumbs:
-                # Round the score for cleaner display
-                score_str = f"{bc.get('score', 0.0):.2f}"
-                breadcrumb_context += f"- {bc['source']}: {bc['text']} (Score: {score_str})\n"
-        else:
+        breadcrumb_context = ""
+        
+        # Handle the new dictionary format
+        if isinstance(director_data, dict):
+            # 1. Recent Events
+            recent = director_data.get("recent_events", [])
+            if recent:
+                breadcrumb_context += "[Recent Events (Current Flow)]\n"
+                for bc in recent:
+                    breadcrumb_context += f"- {bc['source']}: {bc['text']} (Score: {bc.get('score',0):.2f})\n"
+            
+            # 2. Memories (The Priority Memory System)
+            memories = director_data.get("memories", [])
+            if memories:
+                breadcrumb_context += "\n[Relevant Memories / Key Highlights]\n"
+                for mem in memories:
+                     breadcrumb_context += f"- (Past Highlight) {mem['source']}: {mem['text']}\n"
+
+            # 3. Intuition (The Predictive Context)
+            prediction = director_data.get("prediction", "")
+            if prediction and prediction != "None" and prediction != "None.":
+                breadcrumb_context += f"\n[Your Intuition/Gut Feeling]\n{prediction}\n"
+
+        elif isinstance(director_data, list): 
+            # Fallback for old director version (just in case)
+            breadcrumb_context = "[Recent Events]\n"
+            for bc in director_data:
+                breadcrumb_context += f"- {bc['source']}: {bc['text']}\n"
+
+        if not breadcrumb_context:
             breadcrumb_context = "[Recent Events: Nothing interesting.]\n"
 
-        # --- MODIFIED: Use breadcrumbs instead of old dynamic_context ---
         full_prompt_with_context = f"{breadcrumb_context}\nUSER PROMPT: {prompt}"
 
-        # --- (History formatting for UI remains the same) ---
         history_for_ui = "No history yet."
         if self.history:
             history_lines = []
@@ -216,8 +174,6 @@ class NamiBot:
             ]
 
             response = self.model.generate_content(contents_for_api)
-            
-            # Since the tool is removed, we just get the text directly.
             nami_response = response.text
 
             self.history.append(Content(role="user", parts=[Part.from_text(prompt)]))
@@ -227,17 +183,14 @@ class NamiBot:
                 self.history = self.history[-self.max_history_length:]
 
             print(f"\n--- Received Nami's Response ---\n{nami_response}\n----------------------------------")
-            # --- FIX: Return the full context for the UI ---
             return nami_response, full_context_for_ui
         except Exception as e:
             print("\n" + "="*20 + " API ERROR " + "="*20)
             print(f"An error occurred while generating response. Full error details:")
             traceback.print_exc()
             print("="*51 + "\n")
-            # --- FIX: Return the UI context even on error ---
             return "Ugh, my circuits are sizzling. Give me a second and try that again.", full_context_for_ui
 
-# Create a global instance
 if not TUNED_MODEL_ID:
     print("\n" + "="*50)
     print("FATAL ERROR: Please set TUNED_MODEL_ID in your config.py")
