@@ -108,69 +108,42 @@ class NamiBot:
 
     def generate_response(self, prompt):
         """
-        Generates a response using a stateless generate_content call,
-        including dynamic context, memory, and prediction.
+        Generates a response. 
+        Now vastly simplified because prompt construction is handled by Director.
         """
         if not prompt:
             return "I can't respond to an empty prompt, silly.", "No context provided."
 
-        # --- NEW: Get breadcrumbs from Director (Brain 1) ---
-        # This now returns a DICT with keys: 'recent_events', 'memories', 'prediction'
+        # --- FETCH CONSTRUCTED PROMPT FROM DIRECTOR ---
         director_data = get_breadcrumbs_from_director(count=3)
         
-        breadcrumb_context = ""
-        
-        # Handle the new dictionary format
-        if isinstance(director_data, dict):
-            # 1. Recent Events
-            recent = director_data.get("recent_events", [])
-            if recent:
-                breadcrumb_context += "[Recent Events (Current Flow)]\n"
-                for bc in recent:
-                    breadcrumb_context += f"- {bc['source']}: {bc['text']} (Score: {bc.get('score',0):.2f})\n"
-            
-            # 2. Memories (The Priority Memory System)
-            memories = director_data.get("memories", [])
-            if memories:
-                breadcrumb_context += "\n[Relevant Memories / Key Highlights]\n"
-                for mem in memories:
-                     breadcrumb_context += f"- (Past Highlight) {mem['source']}: {mem['text']}\n"
+        # Check if we got the new format (Prompt Constructor)
+        if isinstance(director_data, dict) and "formatted_context" in director_data:
+            context_block = director_data["formatted_context"]
+        else:
+            # Fallback if Director isn't updated yet
+            context_block = "[Director Connection Issues - Relying on base personality]"
 
-            # 3. Intuition (The Predictive Context)
-            prediction = director_data.get("prediction", "")
-            if prediction and prediction != "None" and prediction != "None.":
-                breadcrumb_context += f"\n[Your Intuition/Gut Feeling]\n{prediction}\n"
+        full_prompt = f"{context_block}\n\nUSER INPUT: {prompt}"
 
-        elif isinstance(director_data, list): 
-            # Fallback for old director version (just in case)
-            breadcrumb_context = "[Recent Events]\n"
-            for bc in director_data:
-                breadcrumb_context += f"- {bc['source']}: {bc['text']}\n"
-
-        if not breadcrumb_context:
-            breadcrumb_context = "[Recent Events: Nothing interesting.]\n"
-
-        full_prompt_with_context = f"{breadcrumb_context}\nUSER PROMPT: {prompt}"
-
-        history_for_ui = "No history yet."
-        if self.history:
-            history_lines = []
-            for entry in self.history:
-                role = "User" if entry.role == "user" else "Nami"
-                text = entry.parts[0].text.strip()
-                history_lines.append(f"{role}: {text}")
-            history_for_ui = "\n".join(history_lines)
+        # History formatting for UI debug
+        history_lines = []
+        for entry in self.history:
+            role = "User" if entry.role == "user" else "Nami"
+            text = entry.parts[0].text.strip()
+            history_lines.append(f"{role}: {text}")
+        history_for_ui = "\n".join(history_lines)
 
         full_context_for_ui = (
             f"--- CONVERSATION HISTORY ---\n{history_for_ui}\n\n"
-            f"--- CURRENT CONTEXT & PROMPT ---\n{full_prompt_with_context}"
+            f"--- CURRENT CONTEXT & PROMPT ---\n{full_prompt}"
         )
 
-        print(f"\n--- Sending Prompt to Gemini --- \n{full_prompt_with_context}\n---------------------------------")
+        print(f"\n--- Sending Prompt to Gemini --- \n{full_prompt}\n---------------------------------")
 
         try:
             contents_for_api = self.history + [
-                Content(role="user", parts=[Part.from_text(full_prompt_with_context)])
+                Content(role="user", parts=[Part.from_text(full_prompt)])
             ]
 
             response = self.model.generate_content(contents_for_api)
