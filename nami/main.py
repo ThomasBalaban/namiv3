@@ -28,7 +28,6 @@ from nami.vision_process_manager import start_vision_process, stop_vision_proces
 from nami.tts_utils.content_filter import process_response_for_content
 from nami.audio_process_manager import start_audio_mon_process, stop_audio_mon_process
 from nami.director_process_manager import start_director_process, stop_director_process
-# --- MODIFIED: Import send_bot_reply ---
 from nami.director_connector import start_connector_thread, stop_connector, send_bot_reply
 
 from nami.config import (
@@ -145,7 +144,8 @@ class FunnelResponseHandler:
         
         filtered_content = process_response_for_content(response)
         tts_version = filtered_content['tts_version']
-        twitch_version = filtered_content['twitch_version'] 
+        twitch_version = filtered_content['twitch_version']
+        ui_version = filtered_content['ui_version'] # <--- NEW: Get raw text for UI
         is_censored = filtered_content['is_censored']
 
         if is_censored:
@@ -155,8 +155,9 @@ class FunnelResponseHandler:
             print(f"\n[BOT] {tts_version}")
         print("You: ", end="", flush=True)
 
-        # --- MODIFIED: Send to Director UI via Connector ---
-        send_bot_reply(tts_version, prompt_details or "", is_censored)
+        # --- MODIFIED: Send RAW TEXT (ui_version) to Director UI ---
+        # This allows the UI to show the red-boxed original text while Twitch gets stars
+        send_bot_reply(ui_version, prompt_details or "", is_censored)
 
         try:
             source = source_info.get('source')
