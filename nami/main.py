@@ -16,18 +16,11 @@ import re
 import atexit
 from nami.bot_core import ask_question, BOTNAME
 
-# --- REMOVED: Local Hearing/Vision Imports (Handled by Director -> Gemini App now) ---
-# from nami.audio_utils.hearing_system import start_hearing_system, stop_hearing_system
-# from nami.vision_client import start_vision_client
-# from nami.vision_process_manager import start_vision_process, stop_vision_process
-# from nami.audio_process_manager import start_audio_mon_process, stop_audio_mon_process
-
 from nami.twitch_integration import init_twitch_bot, send_to_twitch_sync
 from nami.input_systems import (
     init_priority_system,
     shutdown_priority_system,
     process_console_command,
-    # process_hearing_line, # Not needed locally anymore
 )
 
 from nami.tts_utils.content_filter import process_response_for_content
@@ -67,10 +60,8 @@ def start_ngrok_tunnel():
     if SECURITY_NOTIFICATIONS:
         print("🔒 Starting secure ngrok tunnel for sound effects...")
     try:
-        # Note: Director Engine is on 8002, but Nami (TTS) serves on 8000 if needed for webhooks
-        # or we just expose the Director. For now, assuming this tunnel is for Nami's audio assets?
-        # If Nami is just a shell, maybe we don't need this, but keeping it for safety.
-        cmd = ["ngrok", "http", "8002"] # Points to Director Engine (Brain)
+        # Note: Director Engine is on 8002
+        cmd = ["ngrok", "http", "8002"] 
         if NGROK_AUTH_ENABLED and NGROK_AUTH_USERNAME and NGROK_AUTH_PASSWORD:
             auth_string = f"{NGROK_AUTH_USERNAME}:{NGROK_AUTH_PASSWORD}"
             cmd.extend(["-auth", auth_string])
@@ -165,8 +156,6 @@ class FunnelResponseHandler:
 
         # --- TTS PLAYBACK (THE VOICE) ---
         if self.generation_func and self.playback_func:
-            # We default to using TTS unless specifically told not to
-            # The Director controls this via the Interjection source info
             try:
                 audio_filename = self.generation_func(tts_version)
                 if audio_filename:
@@ -191,7 +180,6 @@ def console_input_loop():
             break
 
 # --- INTERJECTION SERVER (The Ear for the Director) ---
-# This is how the Director (Brain) sends commands to Nami (Body) to speak.
 interjection_app = FastAPI()
 INTERJECTION_PORT = 8000
 class InterjectionPayload(BaseModel):
@@ -231,16 +219,11 @@ def main():
     print("="*60)
 
     # 1. Start the Brain (Director Engine)
-    # The Director will then auto-start the Senses (Desktop Monitor)
     print("🚀 Launching Director Engine...")
     if not start_director_process():
         print("CRITICAL ERROR: Director Engine failed to start. Exiting.")
         return
     
-    # REMOVED: Old Sensor Startups
-    # start_audio_mon_process()
-    # start_vision_process()
-
     # 2. Start Local Servers
     start_interjection_server_thread()
     
@@ -276,18 +259,24 @@ def main():
             min_prompt_interval=2
         )
         global_input_funnel = input_funnel
+        
+        # --- FIXED: Re-enabled the Priority System ---
+        # This bridges the Input Handlers (Microphone/Twitch) to the Funnel
+        print("🧠 Initializing Local Reflex (Priority System)...")
+        init_priority_system(funnel_instance=input_funnel)
+    else:
+        # Fallback if funnel isn't available
+        print("⚠️ Voice system unavailable. Initializing basic priority system.")
+        init_priority_system(enable_bot_core=True)
 
     # 4. Initialize Twitch
     init_twitch_bot(funnel=input_funnel)
-
-    # REMOVED: Local Hearing System
-    # start_hearing_system(...)
-    # start_vision_client(...)
 
     print("\n✅ Nami is Online.")
     print("   - Brain: Running (Director)")
     print("   - Senses: Managed by Brain (Gemini Monitor)")
     print("   - Voice: Ready")
+    print("   - Reflexes: Active")
     print("   - Twitch: Connected")
 
     try:
@@ -298,11 +287,8 @@ def main():
         print("Cleaning up...")
         if global_input_funnel:
             global_input_funnel.stop()
-        # stop_hearing_system()
         shutdown_priority_system()
-        # stop_vision_process()
-        # stop_audio_mon_process()
-        stop_director_process() # Kills the Brain
+        stop_director_process()
         stop_ngrok()
         stop_connector()
         print("Shutdown complete.")
