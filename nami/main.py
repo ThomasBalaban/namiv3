@@ -15,18 +15,22 @@ import json
 import re
 import atexit
 from nami.bot_core import ask_question, BOTNAME
-from nami.audio_utils.hearing_system import start_hearing_system, stop_hearing_system
-from nami.vision_client import start_vision_client
+
+# --- REMOVED: Local Hearing/Vision Imports (Handled by Director -> Gemini App now) ---
+# from nami.audio_utils.hearing_system import start_hearing_system, stop_hearing_system
+# from nami.vision_client import start_vision_client
+# from nami.vision_process_manager import start_vision_process, stop_vision_process
+# from nami.audio_process_manager import start_audio_mon_process, stop_audio_mon_process
+
 from nami.twitch_integration import init_twitch_bot, send_to_twitch_sync
 from nami.input_systems import (
     init_priority_system,
     shutdown_priority_system,
     process_console_command,
-    process_hearing_line,
+    # process_hearing_line, # Not needed locally anymore
 )
-from nami.vision_process_manager import start_vision_process, stop_vision_process
+
 from nami.tts_utils.content_filter import process_response_for_content
-from nami.audio_process_manager import start_audio_mon_process, stop_audio_mon_process
 from nami.director_process_manager import start_director_process, stop_director_process
 from nami.director_connector import start_connector_thread, stop_connector, send_bot_reply
 
@@ -63,7 +67,10 @@ def start_ngrok_tunnel():
     if SECURITY_NOTIFICATIONS:
         print("🔒 Starting secure ngrok tunnel for sound effects...")
     try:
-        cmd = ["ngrok", "http", "8002"] # Points to Director Engine
+        # Note: Director Engine is on 8002, but Nami (TTS) serves on 8000 if needed for webhooks
+        # or we just expose the Director. For now, assuming this tunnel is for Nami's audio assets?
+        # If Nami is just a shell, maybe we don't need this, but keeping it for safety.
+        cmd = ["ngrok", "http", "8002"] # Points to Director Engine (Brain)
         if NGROK_AUTH_ENABLED and NGROK_AUTH_USERNAME and NGROK_AUTH_PASSWORD:
             auth_string = f"{NGROK_AUTH_USERNAME}:{NGROK_AUTH_PASSWORD}"
             cmd.extend(["-auth", auth_string])
@@ -119,19 +126,6 @@ def check_tunnel_security():
         if SECURITY_NOTIFICATIONS: print(f"❌ Error checking tunnel security: {e}")
         return False
 
-def hearing_line_processor(line_str):
-    if ("[Microphone Input]" in line_str or
-        ("]" in line_str and any(x in line_str for x in ["SPEECH", "MUSIC"]))):
-        if "[Microphone Input]" in line_str:
-            formatted = line_str.replace("[Microphone Input]", "[HEARING] 🎤")
-        else:
-            formatted = line_str.replace("[", "[HEARING] 🔊 [", 1)
-        print(f"\n{formatted}")
-        print("You: ", end="", flush=True)
-        process_hearing_line(line_str)
-    elif any(x in line_str for x in ["Loading", "Starting", "Initializing", "Error", "Vosk"]):
-        print(f"[Hearing] {line_str}")
-
 class FunnelResponseHandler:
     def __init__(self, generation_func=None, playback_func=None):
         self.generation_func = generation_func
@@ -145,7 +139,7 @@ class FunnelResponseHandler:
         filtered_content = process_response_for_content(response)
         tts_version = filtered_content['tts_version']
         twitch_version = filtered_content['twitch_version']
-        ui_version = filtered_content['ui_version'] # <--- NEW: Get raw text for UI
+        ui_version = filtered_content['ui_version']
         is_censored = filtered_content['is_censored']
 
         if is_censored:
@@ -153,15 +147,13 @@ class FunnelResponseHandler:
             print(f"[BOT - CENSORED] Sending: {tts_version}")
         else:
             print(f"\n[BOT] {tts_version}")
-        print("You: ", end="", flush=True)
-
-        # --- MODIFIED: Send RAW TEXT (ui_version) to Director UI ---
-        # This allows the UI to show the red-boxed original text while Twitch gets stars
+        
+        # Send to Director UI for display
         send_bot_reply(ui_version, prompt_details or "", is_censored)
 
         try:
             source = source_info.get('source')
-            if source in ['TWITCH_MENTION', 'DIRECT_MICROPHONE'] or source.startswith('DIRECTOR_'):
+            if source in ['TWITCH_MENTION', 'DIRECT_MICROPHONE'] or source and source.startswith('DIRECTOR_'):
                 username = source_info.get('username')
                 if source == 'TWITCH_MENTION' and username:
                     twitch_response = f"@{username} {twitch_version}"
@@ -171,7 +163,10 @@ class FunnelResponseHandler:
         except Exception as e:
             print(f"[TWITCH] Error sending response: {e}")
 
-        if self.generation_func and self.playback_func and source_info.get('use_tts', False):
+        # --- TTS PLAYBACK (THE VOICE) ---
+        if self.generation_func and self.playback_func:
+            # We default to using TTS unless specifically told not to
+            # The Director controls this via the Interjection source info
             try:
                 audio_filename = self.generation_func(tts_version)
                 if audio_filename:
@@ -185,7 +180,7 @@ class FunnelResponseHandler:
                 print(f"[TTS] Error processing TTS: {e}")
 
 def console_input_loop():
-    print(f"{BOTNAME} is ready. Start chatting!")
+    print(f"{BOTNAME} is ready. (Console input available for debugging)")
     while True:
         try:
             command = input("You: ")
@@ -195,6 +190,8 @@ def console_input_loop():
             print(f"Error in console loop: {e}")
             break
 
+# --- INTERJECTION SERVER (The Ear for the Director) ---
+# This is how the Director (Brain) sends commands to Nami (Body) to speak.
 interjection_app = FastAPI()
 INTERJECTION_PORT = 8000
 class InterjectionPayload(BaseModel):
@@ -206,49 +203,48 @@ class InterjectionPayload(BaseModel):
 async def receive_interjection(payload: InterjectionPayload):
     global global_input_funnel
     if global_input_funnel:
-        print(f"✅ Received Tier 2 Interjection from Director: {payload.content[:50]}...")
+        print(f"✅ Received Command from Director: {payload.content[:50]}...")
         global_input_funnel.add_input(
             content=payload.content,
             priority=payload.priority,
             source_info=payload.source_info
         )
-        return {"status": "success", "message": "Interjection added to funnel."}
+        return {"status": "success", "message": "Command received."}
     else:
-        print("❌ Received interjection, but no funnel is active.")
-        return {"status": "error", "message": "Input funnel not available."}
+        print("❌ Received interjection, but Nami is not ready.")
+        return {"status": "error", "message": "Nami funnel not ready."}
 
 def run_interjection_server():
-    print(f"Starting Interjection server on http://0.0.0.0:{INTERJECTION_PORT}...")
+    print(f"Starting Local Command Server on http://0.0.0.0:{INTERJECTION_PORT}...")
     uvicorn.run(interjection_app, host="0.0.0.0", port=INTERJECTION_PORT, log_level="warning")
 
 def start_interjection_server_thread():
     server_thread = threading.Thread(target=run_interjection_server, daemon=True, name="InterjectionServer")
     server_thread.start()
-    print("Interjection server thread started.")
+    print("Local Command Server thread started.")
 
 def main():
     global global_input_funnel
     
     print("\n" + "="*60)
-    print("Starting Director Engine (Brain 1)...")
+    print("🌊 NAMI V3 (The Body) - Starting Up...")
     print("="*60)
+
+    # 1. Start the Brain (Director Engine)
+    # The Director will then auto-start the Senses (Desktop Monitor)
+    print("🚀 Launching Director Engine...")
     if not start_director_process():
-        print("CRITICAL ERROR: Director Engine (Brain 1) failed to start. Exiting.")
+        print("CRITICAL ERROR: Director Engine failed to start. Exiting.")
         return
     
-    print("\n" + "="*60)
-    print("Starting audio_mon process...")
-    print("="*60)
-    if not start_audio_mon_process():
-        print("⚠️ Warning: audio_mon failed to start")
-        time.sleep(2)
+    # REMOVED: Old Sensor Startups
+    # start_audio_mon_process()
+    # start_vision_process()
 
-    start_vision_process()
+    # 2. Start Local Servers
     start_interjection_server_thread()
     
-    print("\n" + "="*60)
-    print("Starting Director Connector (Brain 2 -> Brain 1)...")
-    print("="*60)
+    print("🔗 Connecting to Director Engine...")
     start_connector_thread()
     
     time.sleep(3) 
@@ -259,18 +255,17 @@ def main():
             check_tunnel_security()
             atexit.register(stop_ngrok)
             if SECURITY_NOTIFICATIONS:
-                print(f"\n🎉 Secure audio server is ready! URL: {ngrok_url}")
+                print(f"🎉 Public Tunnel Ready: {ngrok_url}")
         else:
-            print("⚠️ Sound effects will use fallback text (ngrok not available)")
+            print("⚠️ Ngrok tunnel failed (TTS functionality unaffected locally)")
     
-    print("\nLog redirection to UI is disabled (UI is now in Director Engine).")
-
+    # 3. Initialize The Voice (Funnel)
     use_funnel = input_funnel_available
     input_funnel = None
     funnel_response_handler = None
 
     if use_funnel:
-        print("Initializing input funnel...")
+        print("🎙️ Initializing Voice Output System...")
         funnel_response_handler = FunnelResponseHandler(
             generation_func=text_to_speech_file if tts_available else None,
             playback_func=play_audio_file if tts_available else None
@@ -282,37 +277,32 @@ def main():
         )
         global_input_funnel = input_funnel
 
-    init_priority_system(
-        llm_callback=ask_question,
-        bot_name=BOTNAME,
-        enable_bot_core=True,
-        funnel_instance=input_funnel if use_funnel else None
-    )
-
-    if use_funnel:
-        from nami.input_systems.input_handlers import set_input_funnel
-        set_input_funnel(input_funnel)
-        print("NOTICE: Desktop audio and vision inputs are now context-only (sent to Director).")
-
-    start_hearing_system(callback=hearing_line_processor)
-    start_vision_client()
+    # 4. Initialize Twitch
     init_twitch_bot(funnel=input_funnel)
 
-    print("System initialization complete, ready for input")
+    # REMOVED: Local Hearing System
+    # start_hearing_system(...)
+    # start_vision_client(...)
+
+    print("\n✅ Nami is Online.")
+    print("   - Brain: Running (Director)")
+    print("   - Senses: Managed by Brain (Gemini Monitor)")
+    print("   - Voice: Ready")
+    print("   - Twitch: Connected")
 
     try:
         console_input_loop()
     except KeyboardInterrupt:
-        print("\nCtrl+C detected. Shutting down gracefully...")
+        print("\nCtrl+C detected. Shutting down...")
     finally:
-        print("Cleaning up resources...")
+        print("Cleaning up...")
         if global_input_funnel:
             global_input_funnel.stop()
-        stop_hearing_system()
+        # stop_hearing_system()
         shutdown_priority_system()
-        stop_vision_process()
-        stop_audio_mon_process()
-        stop_director_process()
+        # stop_vision_process()
+        # stop_audio_mon_process()
+        stop_director_process() # Kills the Brain
         stop_ngrok()
         stop_connector()
         print("Shutdown complete.")
