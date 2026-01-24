@@ -23,3 +23,12 @@ nami/gcp_creds2.json
 **/.DS_Store
 nami/mlx-community/**
 nami/audio_effects/**
+nami/training/**
+nami/model_in_progress.yaml
+nami/model_in_progress2.yaml
+nami/next_steps.md
+nami/next_steps2.md
+nami/next_steps3.md
+nami/conversations/**
+nami/package-lock.json
+nami.egg-info
