@@ -222,56 +222,46 @@
             twitchMessages.scrollTop = twitchMessages.scrollHeight;
         });
 
+        
         socket.on('bot_reply', (data) => {
-            console.log('Received bot_reply:', data); // Debug log
-            
-            // Sanitize visible row content
             const sanitizedReply = sanitizeHTML(data.reply);
-            const sanitizedPrompt = sanitizeHTML(data.prompt || '');
             const sentMessageRaw = bestEffortSentMessageFrom(data);
             const isCensored = data.is_censored || false;
+            
+            // --- ADDED: Define the reason ---
+            const reason = data.censorship_reason || "Unknown Policy"; 
 
-            console.log('Is censored:', isCensored); // Debug log
-
-            // Add censorship styling and indicator if needed
             const censorshipClass = isCensored ? 'censored-reply' : '';
-            const censorshipIndicator = isCensored ? '<span class="censored-indicator">🚨 FILTERED</span>' : '';
+            // --- UPDATED: Include reason in indicator ---
+            const censorshipIndicator = isCensored ? `<span class="censored-indicator">🚨 FILTERED (${reason})</span>` : '';
 
-            // Row HTML with conditional styling
+            // --- UPDATED: Added data-reason attribute ---
             const replyHTML = `
           <div class="log-line nami-reply group cursor-pointer ${censorshipClass}"
                data-reply="${encodeURIComponent(data.reply || '')}"
                data-sent="${encodeURIComponent(sentMessageRaw)}"
-               data-censored="${isCensored}">
+               data-censored="${isCensored}"
+               data-reason="${encodeURIComponent(reason)}">
               <strong>Nami:</strong> ${sanitizedReply}${censorshipIndicator}
               <span class="ml-2 opacity-0 group-hover:opacity-100 text-xs text-gray-400 align-middle">📄 Context</span>
           </div>`;
 
-            console.log('Generated HTML:', replyHTML); // Debug log
-
-            // Append to list
             appendLog(namiReplies, replyHTML, 50);
 
-            // Wire the click for the LAST inserted element
             const lastRow = namiReplies.lastElementChild;
             
-            // Debug: Check if the class was applied
-            if (isCensored) {
-                console.log('Applied classes:', lastRow.className);
-                console.log('Background color:', window.getComputedStyle(lastRow).backgroundColor);
-            }
-            
             lastRow.addEventListener('click', () => {
-                // Pull raw values, decode, and open drawer
                 const replyText = decodeURIComponent(lastRow.getAttribute('data-reply') || '');
                 const sentText = decodeURIComponent(lastRow.getAttribute('data-sent') || '');
                 const wasCensored = lastRow.getAttribute('data-censored') === 'true';
+                // --- ADDED: Pull reason for the drawer ---
+                const censorshipReason = decodeURIComponent(lastRow.getAttribute('data-reason') || '');
 
-                // For display, we use textContent (no HTML). This keeps it safe & readable.
                 openDrawer({
                     sentMessage: sentText,
                     replyText: replyText,
-                    wasCensored: wasCensored
+                    wasCensored: wasCensored,
+                    reason: censorshipReason // --- ADDED ---
                 });
             });
         });
@@ -315,7 +305,8 @@
 
     <script>
         // --- Drawer helpers ---
-         function openDrawer({ sentMessage, replyText, wasCensored = false }) {
+         // --- UPDATED: Now accepts 'reason' ---
+         function openDrawer({ sentMessage, replyText, wasCensored = false, reason = "" }) {
             const overlay = document.getElementById('context-drawer-overlay');
             const drawer = document.getElementById('context-drawer');
             const sentEl = document.getElementById('drawer-sent');
@@ -323,9 +314,15 @@
 
             sentEl.textContent = sentMessage || '(not provided)';
             
-            // Add censorship warning to reply if needed
             if (wasCensored) {
-                replyEl.innerHTML = `<div style="color: #ef4444; font-weight: 600; margin-bottom: 0.5rem;">🚨 CONTENT FILTERED - Original Response:</div>`;
+                // --- UPDATED: Show the trigger word in the drawer ---
+                replyEl.innerHTML = `
+                    <div style="color: #ef4444; font-weight: 600; margin-bottom: 0.5rem;">🚨 CONTENT FILTERED</div>
+                    <div class="mb-4 p-2 bg-red-900/20 border border-red-900/50 rounded text-xs text-red-200 italic">
+                        Safety Trigger: Banned content detected ("${reason}")
+                    </div>
+                    <div class="text-xs text-gray-500 mb-1">Original Response:</div>
+                `;
                 const replyTextEl = document.createElement('div');
                 replyTextEl.textContent = replyText || '(not provided)';
                 replyEl.appendChild(replyTextEl);
@@ -339,7 +336,6 @@
 
             overlay.classList.remove('hidden');
             drawer.classList.remove('translate-x-full');
-            // Optional: prevent page scroll while drawer open
             document.body.style.overflow = 'hidden';
         }
 

@@ -18,34 +18,23 @@ def load_banned_words():
         return []
 
 def contains_banned_content(text):
-    """
-    Check if text contains any banned words or phrases.
-    
-    Args:
-        text (str): Text to check
-        
-    Returns:
-        bool: True if banned content is found
-    """
+    """Checks for banned words and returns (is_banned, trigger_word)"""
     if not text:
-        return False
+        return False, None
         
     banned_words = load_banned_words()
     text_lower = text.lower()
     
     for banned_word in banned_words:
-        # Use word boundaries to avoid false positives
-        # For multi-word phrases, check direct containment
         if ' ' in banned_word:
             if banned_word in text_lower:
-                return True
+                return True, banned_word 
         else:
-            # For single words, use word boundaries
             pattern = r'\b' + re.escape(banned_word) + r'\b'
             if re.search(pattern, text_lower):
-                return True
+                return True, banned_word
     
-    return False
+    return False, None
 
 def get_censored_versions(original_text):
     """
@@ -65,25 +54,24 @@ def get_censored_versions(original_text):
     }
 
 def process_response_for_content(text):
-    """
-    Process a response text and return appropriate versions for different outputs.
-    
-    Args:
-        text (str): Original response text
-        
-    Returns:
-        dict: Dictionary containing versions for different outputs
-    """
-    if contains_banned_content(text):
-        print(f"🚨 Content filter triggered for: {text[:50]}...")
-        return get_censored_versions(text)
-    else:
+    """Updated to include the censorship_reason in the output dict"""
+    is_banned, reason = contains_banned_content(text)
+    if is_banned:
+        print(f"🚨 Content filter triggered: {reason}")
         return {
-            'tts_version': text,
-            'twitch_version': text,
+            'tts_version': 'censored',
+            'twitch_version': '*censored*',
             'ui_version': text,
-            'is_censored': False
+            'is_censored': True,
+            'censorship_reason': reason  # NEW FIELD
         }
+    return {
+        'tts_version': text,
+        'twitch_version': text,
+        'ui_version': text,
+        'is_censored': False,
+        'censorship_reason': None
+    }
 
 # Test function
 def test_content_filter():

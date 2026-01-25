@@ -80,21 +80,21 @@ def send_event(
     except Exception as e:
         print(f"[DirectorConnector] Error sending event: {e}")
 
-def send_bot_reply(reply_text, prompt_text="", is_censored=False):
-    """Sends a bot reply to the Director Engine for UI display."""
+def send_bot_reply(reply_text, prompt_text="", is_censored=False, censorship_reason=None):
     if not sio.connected:
         return
 
     payload = {
         "reply": reply_text,
         "prompt": prompt_text,
-        "is_censored": is_censored
+        "is_censored": is_censored,
+        "censorship_reason": censorship_reason # NEW FIELD
     }
     
     try:
         sio.emit("bot_reply", payload)
     except Exception as e:
-        print(f"[DirectorConnector] Error sending bot reply: {e}")
+        print(f"[DirectorConnector] Error: {e}")
 
 # --- NEW: Speech State Notifications ---
 def notify_speech_started():
