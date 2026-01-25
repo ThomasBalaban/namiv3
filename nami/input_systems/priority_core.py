@@ -5,8 +5,6 @@ import queue
 from dataclasses import dataclass
 from enum import Enum, auto
 from typing import Dict, Optional, Any, Callable
-# --- MODIFIED: Removed the import from ..context ---
-# (from ..context import update_vision_context, ...) <--- THIS IS GONE
 
 # Define input source types
 class InputSource(Enum):
