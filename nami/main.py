@@ -67,26 +67,53 @@ def start_ngrok_tunnel():
         print("🔒 Starting secure ngrok tunnel for sound effects...")
     try:
         # Note: Director Engine is on 8002
-        cmd = ["ngrok", "http", "8002"] 
+        cmd = ["ngrok", "http", "8002"]
+        
         if NGROK_AUTH_ENABLED and NGROK_AUTH_USERNAME and NGROK_AUTH_PASSWORD:
             auth_string = f"{NGROK_AUTH_USERNAME}:{NGROK_AUTH_PASSWORD}"
-            cmd.extend(["-auth", auth_string])
-        if NGROK_BIND_TLS: cmd.append("-bind-tls=true")
-        if not NGROK_INSPECT: cmd.append("-inspect=false")
+            cmd.extend(["--basic-auth", auth_string])  # Fixed: double dash, correct flag name
+        
+        if NGROK_BIND_TLS:
+            cmd.append("--bind-tls=true")  # Fixed: double dash
+        
+        if not NGROK_INSPECT:
+            cmd.append("--inspect=false")  # Fixed: double dash
+        
         cmd.extend(["--log=stdout"])
-        ngrok_process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        time.sleep(3)
-        response = requests.get("http://localhost:4040/api/tunnels", timeout=5)
-        tunnels = response.json()
-        if tunnels.get("tunnels"):
-            public_url = tunnels["tunnels"][0]["public_url"]
-            if SECURITY_NOTIFICATIONS:
-                print(f"✅ Secure tunnel active: {public_url}")
-                print(f"   (Pointing to Director Engine on port 8002)")
-            return public_url
-        else:
-            print("❌ No ngrok tunnels found")
-            return None
+        
+        ngrok_process = subprocess.Popen(
+            cmd, 
+            stdout=subprocess.PIPE, 
+            stderr=subprocess.PIPE
+        )
+        
+        # Wait longer for ngrok to start
+        time.sleep(5)  # Increased from 3 to 5
+        
+        # Retry logic for getting tunnel info
+        for attempt in range(3):
+            try:
+                response = requests.get("http://localhost:4040/api/tunnels", timeout=5)
+                tunnels = response.json()
+                if tunnels.get("tunnels"):
+                    public_url = tunnels["tunnels"][0]["public_url"]
+                    if SECURITY_NOTIFICATIONS:
+                        print(f"✅ Secure tunnel active: {public_url}")
+                        print(f"   (Pointing to Director Engine on port 8002)")
+                    return public_url
+            except requests.exceptions.ConnectionError:
+                if attempt < 2:
+                    print(f"⏳ Waiting for ngrok API... (attempt {attempt + 1}/3)")
+                    time.sleep(2)
+                continue
+        
+        print("❌ No ngrok tunnels found after retries")
+        return None
+        
+    except FileNotFoundError:
+        print("❌ ngrok not found. Is it installed and in your PATH?")
+        print("   Install with: brew install ngrok")
+        return None
     except Exception as e:
         print(f"❌ Error starting secure ngrok: {e}")
         return None
