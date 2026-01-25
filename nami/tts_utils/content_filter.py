@@ -53,24 +53,58 @@ def get_censored_versions(original_text):
         'is_censored': True                     # Flag to indicate censoring occurred
     }
 
+def get_filtered_context(text, trigger_word, context_chars=30):
+    """
+    Extract the area around the trigger word for display.
+    Returns a string with the trigger word and surrounding context.
+    """
+    if not text or not trigger_word:
+        return ""
+    
+    text_lower = text.lower()
+    trigger_lower = trigger_word.lower()
+    
+    # Find the position of the trigger word
+    pos = text_lower.find(trigger_lower)
+    if pos == -1:
+        return text[:60] + "..." if len(text) > 60 else text
+    
+    # Get context around the trigger
+    start = max(0, pos - context_chars)
+    end = min(len(text), pos + len(trigger_word) + context_chars)
+    
+    # Build the context string
+    context = ""
+    if start > 0:
+        context += "..."
+    context += text[start:end]
+    if end < len(text):
+        context += "..."
+    
+    return context
+
 def process_response_for_content(text):
-    """Updated to include the censorship_reason in the output dict"""
+    """Updated to include the censorship_reason and filtered_area in the output dict"""
     is_banned, reason = contains_banned_content(text)
     if is_banned:
+        filtered_area = get_filtered_context(text, reason)
         print(f"🚨 Content filter triggered: {reason}")
+        print(f"   Filtered area: {filtered_area}")
         return {
             'tts_version': 'censored',
             'twitch_version': '*censored*',
             'ui_version': text,
             'is_censored': True,
-            'censorship_reason': reason  # NEW FIELD
+            'censorship_reason': reason,
+            'filtered_area': filtered_area
         }
     return {
         'tts_version': text,
         'twitch_version': text,
         'ui_version': text,
         'is_censored': False,
-        'censorship_reason': None
+        'censorship_reason': None,
+        'filtered_area': None
     }
 
 # Test function

@@ -207,7 +207,8 @@ class FunnelResponseHandler:
             reply_text=ui_version, 
             prompt_text=prompt_details or "", 
             is_censored=is_censored,
-            censorship_reason=reason
+            censorship_reason=reason,
+            filtered_area=filtered_content.get('filtered_area')
         )
 
         # Handle Twitch integration

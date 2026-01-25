@@ -80,7 +80,7 @@ def send_event(
     except Exception as e:
         print(f"[DirectorConnector] Error sending event: {e}")
 
-def send_bot_reply(reply_text, prompt_text="", is_censored=False, censorship_reason=None):
+def send_bot_reply(reply_text, prompt_text="", is_censored=False, censorship_reason=None, filtered_area=None):
     if not sio.connected:
         return
 
@@ -88,7 +88,8 @@ def send_bot_reply(reply_text, prompt_text="", is_censored=False, censorship_rea
         "reply": reply_text,
         "prompt": prompt_text,
         "is_censored": is_censored,
-        "censorship_reason": censorship_reason # NEW FIELD
+        "censorship_reason": censorship_reason,
+        "filtered_area": filtered_area  # ADD THIS
     }
     
     try:
