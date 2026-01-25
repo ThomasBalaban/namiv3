@@ -97,26 +97,23 @@ def send_bot_reply(reply_text, prompt_text="", is_censored=False, censorship_rea
     except Exception as e:
         print(f"[DirectorConnector] Error: {e}")
 
-# --- NEW: Speech State Notifications ---
-def notify_speech_started():
+def notify_speech_started(source: str = "UNKNOWN"):
     """
     Notify Director that Nami has started speaking.
-    This prevents Director from sending new interjections while TTS is playing.
+    source should be 'USER_DIRECT' for responses to user, 'IDLE_THOUGHT' for idle chatter
     """
-    # Try Socket.IO first
     if sio.connected:
         try:
-            sio.emit("speech_started", {})
-            print("[DirectorConnector] 🔇 Notified Director: speech_started")
+            sio.emit("speech_started", {"source": source})
+            print(f"[DirectorConnector] 🔇 Notified Director: speech_started (source: {source})")
             return
         except Exception as e:
             print(f"[DirectorConnector] Socket emit failed, trying HTTP: {e}")
     
-    # Fallback to HTTP
     try:
         with httpx.Client(timeout=1.0) as client:
-            client.post(f"{DIRECTOR_URL}/speech_started")
-            print("[DirectorConnector] 🔇 Notified Director (HTTP): speech_started")
+            client.post(f"{DIRECTOR_URL}/speech_started", json={"source": source})
+            print(f"[DirectorConnector] 🔇 Notified Director (HTTP): speech_started (source: {source})")
     except Exception as e:
         print(f"[DirectorConnector] Failed to notify speech_started: {e}")
 

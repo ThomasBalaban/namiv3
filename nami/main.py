@@ -98,12 +98,27 @@ class InterjectionPayload(BaseModel):
 async def receive_interjection(payload: InterjectionPayload):
     global global_input_funnel
     
-    # [FIX] Strict gating: If busy, ignore everything. No whitelist.
-    if nami_is_busy.is_set():
+    # Check if this is a priority interrupt from the handler (PeepingOtter)
+    source = payload.source_info.get('source', '')
+    username = payload.source_info.get('username', '').lower()
+    
+    is_handler_interrupt = (
+        username == 'peepingotter' and 
+        source in ['TWITCH_MENTION', 'DIRECT_MICROPHONE']
+    )
+    
+    # If Nami is busy, only allow handler interrupts
+    if nami_is_busy.is_set() and not is_handler_interrupt:
+        print(f"🔇 [Interject] Ignored - Nami is busy (source: {source})")
         return {"status": "ignored", "message": "Nami is currently talking or thinking."}
+    
+    # If handler is interrupting, clear the busy state
+    if is_handler_interrupt and nami_is_busy.is_set():
+        print(f"⚡ [Interject] HANDLER INTERRUPT from {username}!")
+        nami_is_busy.clear()
+        # Note: This won't stop current audio, but will allow new input
 
     if global_input_funnel:
-        # Lock the system immediately to prevent overlapping commands
         nami_is_busy.set()
         print(f"✅ Accepted Command from Director: {payload.content[:50]}...")
         global_input_funnel.add_input(
@@ -193,7 +208,6 @@ class FunnelResponseHandler:
         twitch_version = filtered_content['twitch_version']
         ui_version = filtered_content['ui_version']
         is_censored = filtered_content['is_censored']
-        # Extract the specific trigger word for the Director Engine UI
         reason = filtered_content.get('censorship_reason')
 
         if is_censored:
@@ -202,7 +216,7 @@ class FunnelResponseHandler:
         else:
             print(f"\n[BOT] {tts_version}")
         
-        # Send details to Director Engine, including the specific censorship reason
+        # Send details to Director Engine
         send_bot_reply(
             reply_text=ui_version, 
             prompt_text=prompt_details or "", 
@@ -229,24 +243,50 @@ class FunnelResponseHandler:
         if priority_system:
             priority_system.set_state(ConversationState.BUSY)
 
+        # Determine if this is a user-direct response or idle thought
+        source = source_info.get('source', '')
+        username = str(source_info.get('username', '')).lower()
+        is_user_direct = (
+            source in ['TWITCH_MENTION', 'DIRECT_MICROPHONE'] or 
+            'peepingotter' in username or
+            not source.startswith('DIRECTOR_')  # If it's not from Director, it's from user
+        )
+        speech_source = 'USER_DIRECT' if is_user_direct else 'IDLE_THOUGHT'
+        
+        print(f"🎯 [Response] Source: {source}, Username: {username}, Speech type: {speech_source}")
+
         # Handle TTS Generation and Playback
         if self.generation_func and self.playback_func:
             try:
-                notify_speech_started() # Tell Director to stop interjecting
+                notify_speech_started(source=speech_source)  # Pass the source!
+                
+                print(f"🎵 [TTS] Generating audio...")
                 audio_filename = self.generation_func(tts_version)
                 
                 if audio_filename:
+                    # Run playback in a thread but WAIT for it properly
                     def playback_with_notification(filename):
                         try:
+                            print(f"🔊 [TTS] Starting playback...")
                             self.playback_func(filename)
+                            print(f"🔊 [TTS] Playback ACTUALLY finished")
+                        except Exception as e:
+                            print(f"❌ [TTS] Playback error: {e}")
                         finally:
-                            # Notify Director that speech is done and release local locks
+                            # These should ONLY run after playback is truly done
+                            print(f"🔊 [TTS] Releasing speech lock...")
                             notify_speech_finished()
                             nami_is_busy.clear()
                             if priority_system:
                                 priority_system.set_state(ConversationState.IDLE)
                     
-                    threading.Thread(target=playback_with_notification, args=(audio_filename,), daemon=True).start()
+                    # Start playback thread
+                    playback_thread = threading.Thread(
+                        target=playback_with_notification, 
+                        args=(audio_filename,), 
+                        daemon=True
+                    )
+                    playback_thread.start()
                 else:
                     # Cleanup if generation failed
                     print("❌ TTS Generation failed. Cleaning up.")
@@ -262,8 +302,8 @@ class FunnelResponseHandler:
             # Unlock immediately if no audio system is active
             nami_is_busy.clear()
             if priority_system:
-                priority_system.set_state(ConversationState.IDLE)
-                
+                priority_system.set_state(ConversationState.IDLE)          
+                                        
 def console_input_loop():
     print(f"{BOTNAME} is ready.")
     while True:
