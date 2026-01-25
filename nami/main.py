@@ -25,7 +25,13 @@ from nami.input_systems import (
 
 from nami.tts_utils.content_filter import process_response_for_content
 from nami.director_process_manager import start_director_process, stop_director_process
-from nami.director_connector import start_connector_thread, stop_connector, send_bot_reply
+from nami.director_connector import (
+    start_connector_thread, 
+    stop_connector, 
+    send_bot_reply,
+    notify_speech_started,  # NEW
+    notify_speech_finished  # NEW
+)
 
 from nami.config import (
     NGROK_AUTH_ENABLED, 
@@ -157,16 +163,33 @@ class FunnelResponseHandler:
         # --- TTS PLAYBACK (THE VOICE) ---
         if self.generation_func and self.playback_func:
             try:
+                # --- NEW: Notify Director that we're starting to speak ---
+                notify_speech_started()
+                
                 audio_filename = self.generation_func(tts_version)
                 if audio_filename:
+                    # Create a wrapper that notifies when playback is done
+                    def playback_with_notification(filename):
+                        try:
+                            self.playback_func(filename)
+                        finally:
+                            # --- NEW: Notify Director that we're done speaking ---
+                            notify_speech_finished()
+                    
                     playback_thread = threading.Thread(
-                        target=self.playback_func,
+                        target=playback_with_notification,
                         args=(audio_filename,),
                         daemon=True
                     )
                     playback_thread.start()
+                else:
+                    # No audio file generated, notify finished immediately
+                    notify_speech_finished()
             except Exception as e:
                 print(f"[TTS] Error processing TTS: {e}")
+                # Make sure we notify finished even on error
+                notify_speech_finished()
+        # If TTS not available, no need to notify (no speech lock needed)
 
 def console_input_loop():
     print(f"{BOTNAME} is ready. (Console input available for debugging)")
@@ -278,6 +301,7 @@ def main():
     print("   - Voice: Ready")
     print("   - Reflexes: Active")
     print("   - Twitch: Connected")
+    print("   - Speech Lock: Enabled (Director waits for TTS)")
 
     try:
         console_input_loop()

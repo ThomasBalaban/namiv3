@@ -2,6 +2,7 @@
 import socketio
 import threading
 import time
+import httpx
 from typing import Dict, Any, Optional
 
 DIRECTOR_URL = "http://localhost:8002"
@@ -79,7 +80,6 @@ def send_event(
     except Exception as e:
         print(f"[DirectorConnector] Error sending event: {e}")
 
-# --- NEW FUNCTION ---
 def send_bot_reply(reply_text, prompt_text="", is_censored=False):
     """Sends a bot reply to the Director Engine for UI display."""
     if not sio.connected:
@@ -95,3 +95,48 @@ def send_bot_reply(reply_text, prompt_text="", is_censored=False):
         sio.emit("bot_reply", payload)
     except Exception as e:
         print(f"[DirectorConnector] Error sending bot reply: {e}")
+
+# --- NEW: Speech State Notifications ---
+def notify_speech_started():
+    """
+    Notify Director that Nami has started speaking.
+    This prevents Director from sending new interjections while TTS is playing.
+    """
+    # Try Socket.IO first
+    if sio.connected:
+        try:
+            sio.emit("speech_started", {})
+            print("[DirectorConnector] 🔇 Notified Director: speech_started")
+            return
+        except Exception as e:
+            print(f"[DirectorConnector] Socket emit failed, trying HTTP: {e}")
+    
+    # Fallback to HTTP
+    try:
+        with httpx.Client(timeout=1.0) as client:
+            client.post(f"{DIRECTOR_URL}/speech_started")
+            print("[DirectorConnector] 🔇 Notified Director (HTTP): speech_started")
+    except Exception as e:
+        print(f"[DirectorConnector] Failed to notify speech_started: {e}")
+
+def notify_speech_finished():
+    """
+    Notify Director that Nami has finished speaking.
+    This allows Director to resume sending interjections.
+    """
+    # Try Socket.IO first
+    if sio.connected:
+        try:
+            sio.emit("speech_finished", {})
+            print("[DirectorConnector] 🔊 Notified Director: speech_finished")
+            return
+        except Exception as e:
+            print(f"[DirectorConnector] Socket emit failed, trying HTTP: {e}")
+    
+    # Fallback to HTTP
+    try:
+        with httpx.Client(timeout=1.0) as client:
+            client.post(f"{DIRECTOR_URL}/speech_finished")
+            print("[DirectorConnector] 🔊 Notified Director (HTTP): speech_finished")
+    except Exception as e:
+        print(f"[DirectorConnector] Failed to notify speech_finished: {e}")
