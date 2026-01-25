@@ -32,3 +32,4 @@ nami/next_steps3.md
 nami/conversations/**
 nami/package-lock.json
 nami.egg-info
+audio_effects/**
