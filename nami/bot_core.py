@@ -115,14 +115,36 @@ class NamiBot:
             return "I can't respond to an empty prompt, silly.", "No context provided."
 
         # --- FETCH CONSTRUCTED PROMPT FROM DIRECTOR ---
+        print("📡 [NamiBot] Fetching context from Director...")
         director_data = get_breadcrumbs_from_director(count=3)
         
         # Check if we got the new format (Prompt Constructor)
-        if isinstance(director_data, dict) and "formatted_context" in director_data:
-            context_block = director_data["formatted_context"]
-        else:
-            # Fallback if Director isn't updated yet
-            context_block = "[Director Connection Issues - Relying on base personality]"
+        context_block = None
+        
+        if isinstance(director_data, dict):
+            if "formatted_context" in director_data:
+                context_block = director_data["formatted_context"]
+                if context_block and len(context_block.strip()) > 20:
+                    print(f"✅ [NamiBot] Got formatted context ({len(context_block)} chars)")
+                else:
+                    print(f"⚠️ [NamiBot] Formatted context is empty or too short")
+                    context_block = None
+        elif isinstance(director_data, list) and len(director_data) > 0:
+            # Old format - build a simple context from breadcrumbs
+            print(f"⚠️ [NamiBot] Got old format (list of {len(director_data)} items)")
+            context_parts = []
+            for item in director_data:
+                if isinstance(item, dict):
+                    source = item.get('source', 'UNKNOWN')
+                    text = item.get('text', '')
+                    context_parts.append(f"[{source}] {text}")
+            if context_parts:
+                context_block = "### RECENT CONTEXT\n" + "\n".join(context_parts)
+        
+        # Final fallback
+        if not context_block:
+            print("⚠️ [NamiBot] Using fallback context - Director may be starting up")
+            context_block = "[Director initializing - Relying on base personality. Check Director UI for status.]"
 
         full_prompt = f"{context_block}\n\nUSER INPUT: {prompt}"
 
@@ -139,7 +161,7 @@ class NamiBot:
             f"--- CURRENT CONTEXT & PROMPT ---\n{full_prompt}"
         )
 
-        print(f"\n--- Sending Prompt to Gemini --- \n{full_prompt}\n---------------------------------")
+        print(f"\n--- Sending Prompt to Gemini --- \n{full_prompt[:500]}...\n---------------------------------")
 
         try:
             contents_for_api = self.history + [
