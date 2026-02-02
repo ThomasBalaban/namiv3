@@ -15,9 +15,9 @@ def check_ports():
                 print(f"⚠️  Port {port} is IN USE by PID(s): {', '.join(pids)}")
                 
                 # Optional: Uncomment to auto-kill
-                # for pid in pids:
-                #     print(f"    💀 Killing PID {pid}...")
-                #     os.kill(int(pid), signal.SIGKILL)
+                for pid in pids:
+                    print(f"    💀 Killing PID {pid}...")
+                    os.kill(int(pid), signal.SIGKILL)
             else:
                 print(f"✅ Port {port} is free.")
         except subprocess.CalledProcessError:
