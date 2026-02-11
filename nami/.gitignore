@@ -3,7 +3,6 @@
 ./config.py
 config.py
 config.py
-local_models/*
 /__pycache__
 **/__pycache__
 /audio_captures/*
