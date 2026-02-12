@@ -102,9 +102,20 @@ async def receive_interjection(payload: InterjectionPayload):
     source = payload.source_info.get('source', '')
     username = payload.source_info.get('username', '').lower()
     
+    # -------------------------------------------------------
+    # FIX: Previously only checked username == 'peepingotter'.
+    # Mic input from the Director arrives as source='DIRECTOR_DIRECT_MICROPHONE'
+    # with is_interrupt=True and is_direct_address=True, but NO username.
+    # So it was always rejected when Nami was busy.
+    #
+    # Now we also check the Director's interrupt/direct_address flags,
+    # which are set by sensor_bridge when "nami" is detected in speech.
+    # -------------------------------------------------------
     is_handler_interrupt = (
-        username == 'peepingotter' and 
-        source in ['TWITCH_MENTION', 'DIRECT_MICROPHONE']
+        (username == 'peepingotter' and 
+         source in ['TWITCH_MENTION', 'DIRECT_MICROPHONE']) or
+        payload.source_info.get('is_interrupt', False) or
+        payload.source_info.get('is_direct_address', False)
     )
     
     # If Nami is busy, only allow handler interrupts
@@ -114,7 +125,7 @@ async def receive_interjection(payload: InterjectionPayload):
     
     # If handler is interrupting, clear the busy state
     if is_handler_interrupt and nami_is_busy.is_set():
-        print(f"⚡ [Interject] HANDLER INTERRUPT from {username}!")
+        print(f"⚡ [Interject] HANDLER INTERRUPT from {source} (username: {username or 'mic'})!")
         nami_is_busy.clear()
         # Note: This won't stop current audio, but will allow new input
 
