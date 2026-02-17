@@ -6,6 +6,7 @@ import httpx
 from typing import Dict, Any, Optional
 
 DIRECTOR_URL = "http://localhost:8002"
+PROMPT_SERVICE_URL = "http://localhost:8001"
 
 # Create a standard Socket.IO client with more aggressive reconnection
 sio = socketio.Client(
@@ -48,25 +49,22 @@ def run_connector():
             
             print(f"[DirectorConnector] Attempting to connect to {DIRECTOR_URL}...")
             
-            # Use a timeout for the connection attempt
             sio.connect(
                 DIRECTOR_URL, 
-                transports=['websocket', 'polling'],  # Allow fallback to polling
+                transports=['websocket', 'polling'],
                 wait_timeout=10
             )
             consecutive_failures = 0
             
-            # Wait while connected
             while is_running and sio.connected:
                 time.sleep(1)
                 
         except socketio.exceptions.ConnectionError as e:
             consecutive_failures += 1
-            wait_time = min(5 * consecutive_failures, 30)  # Cap at 30 seconds
+            wait_time = min(5 * consecutive_failures, 30)
             print(f"[DirectorConnector] Connection error (attempt {consecutive_failures}): {e}")
             print(f"[DirectorConnector] Retrying in {wait_time}s...")
             
-            # Sleep in small increments so we can exit quickly if needed
             for _ in range(wait_time * 2):
                 if not is_running:
                     break
@@ -111,18 +109,17 @@ def _safe_emit(event: str, payload: dict) -> bool:
         print(f"[DirectorConnector] Error emitting '{event}': {e}")
         return False
 
-def _http_fallback(endpoint: str, payload: dict = None, method: str = "POST") -> bool:
-    """HTTP fallback when socket is disconnected."""
+def _http_fallback(url: str, payload: dict = None, method: str = "POST") -> bool:
+    """HTTP fallback for any URL."""
     try:
         with httpx.Client(timeout=2.0) as client:
-            url = f"{DIRECTOR_URL}{endpoint}"
             if method == "POST":
                 response = client.post(url, json=payload or {})
             else:
                 response = client.get(url)
             return response.status_code == 200
     except Exception as e:
-        print(f"[DirectorConnector] HTTP fallback failed for {endpoint}: {e}")
+        print(f"[DirectorConnector] HTTP fallback failed for {url}: {e}")
         return False
 
 def send_event(
@@ -154,36 +151,35 @@ def send_bot_reply(reply_text, prompt_text="", is_censored=False, censorship_rea
     
     _safe_emit("bot_reply", payload)
 
+# =====================================================
+# SPEECH STATE — Now routes to PROMPT SERVICE (8001)
+# =====================================================
+
 def notify_speech_started(source: str = "UNKNOWN"):
     """
-    Notify Director that Nami has started speaking.
-    source should be 'USER_DIRECT' for responses to user, 'IDLE_THOUGHT' for idle chatter
+    Notify the Prompt Service that Nami has started speaking.
+    
+    CHANGED: Previously went to Director (8002).
+    Now goes to Prompt Service (8001) which owns all speaking state.
     """
     payload = {"source": source}
+    url = f"{PROMPT_SERVICE_URL}/speech_started"
     
-    # Try socket first
-    if _safe_emit("speech_started", payload):
-        print(f"[DirectorConnector] 🔇 Notified Director: speech_started (source: {source})")
-        return
-    
-    # HTTP fallback
-    if _http_fallback("/speech_started", payload):
-        print(f"[DirectorConnector] 🔇 Notified Director (HTTP): speech_started (source: {source})")
+    if _http_fallback(url, payload):
+        print(f"[DirectorConnector] 🔇 Notified Prompt Service: speech_started (source: {source})")
     else:
-        print(f"[DirectorConnector] ⚠️ Failed to notify speech_started")
+        print(f"[DirectorConnector] ⚠️ Failed to notify speech_started (Prompt Service may be offline)")
 
 def notify_speech_finished():
     """
-    Notify Director that Nami has finished speaking.
-    This allows Director to resume sending interjections.
-    """
-    # Try socket first
-    if _safe_emit("speech_finished", {}):
-        print("[DirectorConnector] 🔊 Notified Director: speech_finished")
-        return
+    Notify the Prompt Service that Nami has finished speaking.
     
-    # HTTP fallback
-    if _http_fallback("/speech_finished"):
-        print("[DirectorConnector] 🔊 Notified Director (HTTP): speech_finished")
+    CHANGED: Previously went to Director (8002).
+    Now goes to Prompt Service (8001) which owns all speaking state.
+    """
+    url = f"{PROMPT_SERVICE_URL}/speech_finished"
+    
+    if _http_fallback(url):
+        print("[DirectorConnector] 🔊 Notified Prompt Service: speech_finished")
     else:
-        print("[DirectorConnector] ⚠️ Failed to notify speech_finished")
+        print("[DirectorConnector] ⚠️ Failed to notify speech_finished (Prompt Service may be offline)")
