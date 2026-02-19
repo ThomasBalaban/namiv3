@@ -15,7 +15,6 @@ from pathlib import Path
 
 from nami.input_systems.priority_core import ConversationState
 from nami.bot_core import ask_question, BOTNAME
-from nami.twitch_integration import init_twitch_bot, send_to_twitch_sync
 from nami.input_systems import (
     init_priority_system,
     shutdown_priority_system,
@@ -203,18 +202,6 @@ class FunnelResponseHandler:
             filtered_area=filtered.get("filtered_area"),
         )
 
-        # Send to Twitch
-        try:
-            source   = source_info.get("source")
-            username = source_info.get("username")
-            if source in ["TWITCH_MENTION", "DIRECT_MICROPHONE"] or (
-                source and source.startswith("DIRECTOR_")
-            ):
-                msg = f"@{username} {twitch_version}" if source == "TWITCH_MENTION" and username else twitch_version
-                send_to_twitch_sync(msg)
-        except Exception as e:
-            print(f"Twitch sending failed: {e}")
-
         # Update state to BUSY while TTS is running
         from nami.input_systems.input_handlers import priority_system
         if priority_system:
@@ -287,16 +274,6 @@ def main():
         init_priority_system(funnel_instance=input_funnel)
     else:
         init_priority_system(enable_bot_core=True)
-
-    # 4. Twitch
-    init_twitch_bot(funnel=global_input_funnel)
-
-    tts_status = "✅ connected" if _tts_available() else "⚠️  not running (start from Director UI)"
-    print("\n" + "=" * 60)
-    print("✅ Nami is Online.")
-    print(f"   👂 Intake (Funnel):  port 8000")
-    print(f"   🎵 TTS Service:      port 8004  {tts_status}")
-    print("=" * 60)
 
     try:
         console_input_loop()

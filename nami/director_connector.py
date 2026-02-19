@@ -140,16 +140,17 @@ def send_event(
     
     _safe_emit("event", payload)
 
-def send_bot_reply(reply_text, prompt_text="", is_censored=False, censorship_reason=None, filtered_area=None):
+# nami/director_connector.py (Fragment)
+def send_bot_reply(reply_text, prompt_text="", is_censored=False, **kwargs):
+    """Now emits as a client to the Hub"""
     payload = {
-        "reply": reply_text,
-        "prompt": prompt_text,
-        "is_censored": is_censored,
-        "censorship_reason": censorship_reason,
-        "filtered_area": filtered_area
+        'reply': reply_text,
+        'prompt': prompt_text,
+        'is_censored': is_censored,
+        **kwargs
     }
-    
-    _safe_emit("bot_reply", payload)
+    if sio.connected:
+        sio.emit('bot_reply', payload) # The Hub will broadcast this to everyone else
 
 # =====================================================
 # SPEECH STATE — Now routes to PROMPT SERVICE (8001)
