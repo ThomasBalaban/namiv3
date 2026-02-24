@@ -59,6 +59,9 @@ def init_priority_system(
 
         priority_system.set_response_callback(priority_to_funnel)
         print("Priority system initialized with funnel integration for direct replies.")
+        global response_handler
+        response_handler = None
+        
     else:
         # Fallback if funnel isn't used
         if response_handler_instance:
@@ -70,6 +73,7 @@ def init_priority_system(
             response_handler.enable_bot_core(enable_bot_core)
         priority_system.set_response_callback(response_handler.handle_prioritized_input)
         print("Priority system initialized with traditional response handler")
+        
 
     set_priority_system(priority_system)
     return priority_system

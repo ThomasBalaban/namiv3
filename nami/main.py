@@ -83,8 +83,6 @@ def _tts_available() -> bool:
 
 
 # ── Interjection Server (port 8000) ───────────────────────────────────────
-# The Prompt Service POSTs here to forward approved speech commands.
-# The launcher TCP health-checks port 8000 to confirm Nami is alive.
 
 interjection_app = FastAPI()
 INTERJECTION_PORT = 8000
@@ -105,7 +103,17 @@ if audio_effects_path:
 
 
 class InterjectionPayload(BaseModel):
+    # The specific trigger/instruction from the brain
+    # e.g. "Skill Issue Detected", "Dead Air", or the user's actual words
     content: str
+
+    # The full structured context block fetched by the prompt service from
+    # the director's /context endpoint. This contains visual summary, event
+    # log, memories, directive, scene state, etc.
+    # Empty string means the director was unreachable — Nami falls back to
+    # her base personality.
+    context: str = ""
+
     priority: float
     source_info: Dict[str, Any] = Field(default_factory=dict)
 
@@ -134,9 +142,31 @@ async def receive_interjection(payload: InterjectionPayload):
 
     if global_input_funnel:
         nami_is_busy.set()
+
+        # --- CORE FIX ---
+        # The prompt service already fetched the full structured context from
+        # the director and put it in payload.context.
+        # We combine it with payload.content (the trigger instruction) so that
+        # generate_response() receives a fully-formed prompt and skips its own
+        # director fetch (which was hitting /breadcrumbs and getting the wrong format).
+        #
+        # Format matches what generate_response() expects when context is pre-built:
+        #   <full context block>
+        #   USER INPUT: <trigger instruction>
+        #
+        # If context is empty (director was unreachable), we fall through to just
+        # the content — generate_response() will then attempt its own fetch as a
+        # secondary fallback.
+        if payload.context and len(payload.context.strip()) > 20:
+            combined_content = f"{payload.context}\n\nUSER INPUT: {payload.content}"
+            print(f"✅ [Interject] Using pre-built context ({len(payload.context)} chars) + trigger")
+        else:
+            combined_content = payload.content
+            print(f"⚠️ [Interject] No context from prompt service — using trigger only: {payload.content[:60]}...")
+
         print(f"✅ Accepted command from Director: {payload.content[:50]}...")
         global_input_funnel.add_input(
-            content=payload.content,
+            content=combined_content,
             priority=payload.priority,
             source_info=payload.source_info,
         )
@@ -218,8 +248,6 @@ class FunnelResponseHandler:
         speech_source = "USER_DIRECT" if is_user_direct else "IDLE_THOUGHT"
 
         if _tts_available():
-            # Fire off TTS in a thread — _tts_speak() blocks until playback finishes
-            # then clears nami_is_busy itself.
             threading.Thread(
                 target=_tts_speak,
                 args=(tts_version, speech_source),

@@ -10,6 +10,21 @@ from nami.context import get_breadcrumbs_from_director
 
 BOTNAME = "peepingnami"
 
+# Sentinel strings that appear at the start of a pre-built context block
+# from the director's /context endpoint (via prompt_constructor).
+# If the prompt starts with any of these, we know context is already embedded
+# and we skip the director fetch entirely.
+_CONTEXT_MARKERS = (
+    "<operator_notes",
+    "<directive",
+    "<focus",
+    "<background",
+    "### VISUAL CONTEXT",
+    "### AUDIO & CHAT LOG",
+    "### INSTRUCTION",
+    "### CALLBACK MATERIAL",
+)
+
 # Define sound effect function
 play_sound_effect_func = FunctionDeclaration(
     name="play_sound_effect",
@@ -106,49 +121,82 @@ class NamiBot:
             print(f"Error loading system prompt: {e}")
             return ""
 
+    def _prompt_has_prebuilt_context(self, prompt: str) -> bool:
+        """
+        Returns True if the prompt already contains a full context block
+        assembled by the director's PromptConstructor.
+
+        This happens when the prompt service successfully fetched /context
+        from the director and the interjection handler combined it with the
+        trigger before passing it to the funnel.
+
+        We detect this by looking for the structured XML/markdown markers
+        that PromptConstructor always emits at the top of a context block.
+        """
+        stripped = prompt.strip()
+        return any(stripped.startswith(marker) or f"\n\nUSER INPUT:" in stripped 
+                   for marker in _CONTEXT_MARKERS) or "\n\nUSER INPUT:" in stripped
+
     def generate_response(self, prompt):
         """
-        Generates a response. 
-        Now vastly simplified because prompt construction is handled by Director.
+        Generates a response.
+
+        TWO PATHS:
+
+        Path A — Pre-built context (happy path):
+            The prompt already contains the full director context block
+            combined with the trigger instruction in the format:
+                <full context block>
+                USER INPUT: <trigger>
+            This happens when the prompt service successfully called
+            /context on the director before forwarding to Nami.
+            We use it as-is — no extra director fetch needed.
+
+        Path B — Fallback (director unreachable or startup):
+            The prompt is just the raw trigger string. We attempt to
+            fetch breadcrumbs from the director as a secondary fallback.
+            If that also fails, we fall back to base personality.
         """
         if not prompt:
             return "I can't respond to an empty prompt, silly.", "No context provided."
 
-        # --- FETCH CONSTRUCTED PROMPT FROM DIRECTOR ---
-        print("📡 [NamiBot] Fetching context from Director...")
-        director_data = get_breadcrumbs_from_director(count=3)
-        
-        # Check if we got the new format (Prompt Constructor)
-        context_block = None
-        
-        if isinstance(director_data, dict):
-            if "formatted_context" in director_data:
-                context_block = director_data["formatted_context"]
-                if context_block and len(context_block.strip()) > 20:
-                    print(f"✅ [NamiBot] Got formatted context ({len(context_block)} chars)")
-                else:
-                    print(f"⚠️ [NamiBot] Formatted context is empty or too short")
-                    context_block = None
-        elif isinstance(director_data, list) and len(director_data) > 0:
-            # Old format - build a simple context from breadcrumbs
-            print(f"⚠️ [NamiBot] Got old format (list of {len(director_data)} items)")
-            context_parts = []
-            for item in director_data:
-                if isinstance(item, dict):
-                    source = item.get('source', 'UNKNOWN')
-                    text = item.get('text', '')
-                    context_parts.append(f"[{source}] {text}")
-            if context_parts:
-                context_block = "### RECENT CONTEXT\n" + "\n".join(context_parts)
-        
-        # Final fallback
-        if not context_block:
-            print("⚠️ [NamiBot] Using fallback context - Director may be starting up")
-            context_block = "[Director initializing - Relying on base personality. Check Director UI for status.]"
+        # --- PATH A: Pre-built context already embedded in prompt ---
+        if self._prompt_has_prebuilt_context(prompt):
+            full_prompt = prompt
+            print(f"✅ [NamiBot] Using pre-built context from prompt service ({len(prompt)} chars)")
 
-        full_prompt = f"{context_block}\n\nUSER INPUT: {prompt}"
+        # --- PATH B: No context — attempt director fetch as fallback ---
+        else:
+            print("📡 [NamiBot] No pre-built context. Attempting director fallback fetch...")
+            director_data = get_breadcrumbs_from_director(count=3)
+            context_block = None
 
-        # History formatting for UI debug
+            if isinstance(director_data, dict):
+                if "formatted_context" in director_data:
+                    context_block = director_data["formatted_context"]
+                    if context_block and len(context_block.strip()) > 20:
+                        print(f"✅ [NamiBot] Got formatted context from breadcrumbs ({len(context_block)} chars)")
+                    else:
+                        print(f"⚠️ [NamiBot] Breadcrumb context empty or too short")
+                        context_block = None
+            elif isinstance(director_data, list) and len(director_data) > 0:
+                print(f"⚠️ [NamiBot] Got old breadcrumb format (list of {len(director_data)} items)")
+                context_parts = []
+                for item in director_data:
+                    if isinstance(item, dict):
+                        source = item.get('source', 'UNKNOWN')
+                        text = item.get('text', '')
+                        context_parts.append(f"[{source}] {text}")
+                if context_parts:
+                    context_block = "### RECENT CONTEXT\n" + "\n".join(context_parts)
+
+            if not context_block:
+                print("⚠️ [NamiBot] Director unreachable — using base personality")
+                context_block = "[Director initializing - Relying on base personality. Check Director UI for status.]"
+
+            full_prompt = f"{context_block}\n\nUSER INPUT: {prompt}"
+
+        # --- Build UI debug string ---
         history_lines = []
         for entry in self.history:
             role = "User" if entry.role == "user" else "Nami"
@@ -163,6 +211,14 @@ class NamiBot:
 
         print(f"\n--- Sending Prompt to Gemini --- \n{full_prompt[:500]}...\n---------------------------------")
 
+        # --- For history storage, keep just the original trigger text ---
+        # If it's a pre-built prompt, extract the USER INPUT part for history
+        # so conversation history doesn't balloon with repeated context blocks.
+        if "\n\nUSER INPUT:" in full_prompt:
+            history_user_text = full_prompt.split("\n\nUSER INPUT:")[-1].strip()
+        else:
+            history_user_text = prompt
+
         try:
             contents_for_api = self.history + [
                 Content(role="user", parts=[Part.from_text(full_prompt)])
@@ -171,7 +227,9 @@ class NamiBot:
             response = self.model.generate_content(contents_for_api)
             nami_response = response.text
 
-            self.history.append(Content(role="user", parts=[Part.from_text(prompt)]))
+            # Store only the clean trigger text in history, not the full context block.
+            # This keeps conversation history readable and prevents token bloat.
+            self.history.append(Content(role="user", parts=[Part.from_text(history_user_text)]))
             self.history.append(Content(role="model", parts=[Part.from_text(nami_response)]))
 
             if len(self.history) > self.max_history_length:

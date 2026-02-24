@@ -143,12 +143,21 @@ def send_event(
 # nami/director_connector.py (Fragment)
 def send_bot_reply(reply_text, prompt_text="", is_censored=False, **kwargs):
     """Now emits as a client to the Hub"""
+    
+    # Catch any variation of "reason" passed by the filter scripts
+    reason = kwargs.get('censorship_reason') or kwargs.get('reason') or "Safety Policy Triggered"
+    
+    # Catch any variation of the filtered area
+    area = kwargs.get('filtered_area') or kwargs.get('area')
+    
     payload = {
         'reply': reply_text,
         'prompt': prompt_text,
         'is_censored': is_censored,
-        **kwargs
+        'censorship_reason': reason if is_censored else None,
+        'filtered_area': area if is_censored else None
     }
+    
     if sio.connected:
         sio.emit('bot_reply', payload) # The Hub will broadcast this to everyone else
 
