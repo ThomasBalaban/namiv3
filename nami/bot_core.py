@@ -5,7 +5,7 @@ import vertexai
 import traceback
 from vertexai.generative_models import GenerativeModel, HarmCategory, HarmBlockThreshold, Part, Content, FunctionDeclaration, Tool
 from google.oauth2 import service_account
-from nami.config import TUNED_MODEL_ID
+from nami.config import GCP_PROJECT_ID, GCP_LOCATION, MODEL_NAME
 from nami.context import get_breadcrumbs_from_director
 
 BOTNAME = "peepingnami"
@@ -64,14 +64,6 @@ class NamiBot:
 
         self.system_prompt = self._load_system_prompt()
 
-        try:
-            parts = TUNED_MODEL_ID.split('/')
-            project_id = parts[1]
-            location = parts[3]
-            print(f"Parsed project: {project_id}, location: {location}")
-        except IndexError:
-            raise ValueError("TUNED_MODEL_ID in config.py is not in the expected format.")
-
         creds_path = os.path.join(os.path.dirname(__file__), 'gcp_creds.json')
         try:
             credentials = service_account.Credentials.from_service_account_file(creds_path)
@@ -80,7 +72,7 @@ class NamiBot:
             print(f"FATAL ERROR: Could not load credentials from {creds_path}. {e}")
             raise
 
-        vertexai.init(project=project_id, location=location, credentials=credentials)
+        vertexai.init(project=GCP_PROJECT_ID, location=GCP_LOCATION, credentials=credentials)
         print("Vertex AI initialized successfully.")
 
         self.safety_settings = {
@@ -90,9 +82,9 @@ class NamiBot:
             HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
         }
 
-        print(f"Creating model with ID: {TUNED_MODEL_ID}")
+        print(f"Creating model: {MODEL_NAME}")
         self.model = GenerativeModel(
-            model_name=TUNED_MODEL_ID,
+            model_name=MODEL_NAME,
             system_instruction=self.system_prompt,
             safety_settings=self.safety_settings
         )
@@ -100,7 +92,7 @@ class NamiBot:
         self.history = []
         self.max_history_length = 20
 
-        print(f"NamiBot initialization complete. Using model: {TUNED_MODEL_ID}")
+        print(f"NamiBot initialization complete. Using model: {MODEL_NAME}")
 
     def _load_system_prompt(self):
         """
@@ -244,13 +236,7 @@ class NamiBot:
             print("="*51 + "\n")
             return "Ugh, my circuits are sizzling. Give me a second and try that again.", full_context_for_ui
 
-if not TUNED_MODEL_ID:
-    print("\n" + "="*50)
-    print("FATAL ERROR: Please set TUNED_MODEL_ID in your config.py")
-    print("="*50 + "\n")
-    nami_bot_instance = None
-else:
-    nami_bot_instance = NamiBot()
+nami_bot_instance = NamiBot()
 
 def ask_question(question):
     """Wrapper function to call the bot's generate_response method."""
