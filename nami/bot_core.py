@@ -244,3 +244,13 @@ def ask_question(question):
         return nami_bot_instance.generate_response(question)
     else:
         return "NamiBot is not initialized. Please check your config."
+
+
+def clear_history() -> int:
+    """Drop the in-memory conversation history. Returns the number of turns cleared."""
+    if not nami_bot_instance:
+        return 0
+    cleared = len(nami_bot_instance.history)
+    nami_bot_instance.history = []
+    print(f"🧹 [NamiBot] Conversation history cleared ({cleared} turns)")
+    return cleared

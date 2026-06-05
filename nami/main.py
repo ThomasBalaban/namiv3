@@ -14,7 +14,7 @@ import requests
 from pathlib import Path
 
 from nami.input_systems.priority_core import ConversationState
-from nami.bot_core import ask_question, BOTNAME
+from nami.bot_core import ask_question, clear_history, BOTNAME
 from nami.input_systems import (
     init_priority_system,
     shutdown_priority_system,
@@ -185,6 +185,17 @@ async def stop_audio():
     nami_is_busy.clear()
     print("🛑 [Nami] stop_audio received — forwarded to TTS service")
     return {"status": "stopped"}
+
+
+@interjection_app.post("/clear_history")
+async def clear_conversation_history():
+    """
+    Wipe the in-memory chat history. Called by the prompt service when the
+    operator toggles reply mode, so stale proactive turns from a previous
+    mode don't leak into the next response.
+    """
+    cleared = clear_history()
+    return {"status": "ok", "cleared_turns": cleared}
 
 
 def _run_interjection_server():
